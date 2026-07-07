@@ -1,0 +1,106 @@
+{
+  "title": "Acme Platform",
+  "eyebrow": "Engineering status",
+  "stamp": "Updated 2026-07-07 — sprint 14, cutover on track",
+  "sections": [
+    {
+      "kind": "stats",
+      "items": [
+        { "n": "37", "label": "Commits / 7d", "tone": "go" },
+        { "n": "41,208", "label": "Lines of code" },
+        { "n": "312", "label": "Tests", "tone": "srv" },
+        { "n": "5", "label": "Open PRs", "tone": "wip" }
+      ]
+    },
+    {
+      "kind": "banner",
+      "tone": "none",
+      "text": "Read-replica cutover is scheduled for Friday. Feature freeze on the api repo starts Thursday EOD."
+    },
+    {
+      "kind": "barchart",
+      "title": "Codebase",
+      "desc": "lines of code by area",
+      "legend": [
+        { "fill": "code", "label": "Application code" },
+        { "fill": "gen", "label": "Generated / vendored" }
+      ],
+      "series": [
+        { "label": "web", "value": 16840, "fill": "code" },
+        { "label": "api", "value": 12960, "fill": "code" },
+        { "label": "worker", "value": 6120, "fill": "code" },
+        { "label": "sdk (generated)", "value": 5288, "fill": "gen" }
+      ],
+      "note": "Application code excludes the generated SDK and vendored dependencies."
+    },
+    {
+      "kind": "pie",
+      "title": "Lines by repo",
+      "note": "Share of the codebase by repository.",
+      "slices": [
+        { "label": "web", "value": 16840, "tone": "go" },
+        { "label": "api", "value": 12960, "tone": "srv" },
+        { "label": "worker", "value": 6120, "tone": "wip" },
+        { "label": "sdk", "value": 5288, "tone": "done" }
+      ]
+    },
+    {
+      "kind": "cards",
+      "title": "Open decisions",
+      "count": "3 open",
+      "items": [
+        {
+          "id": "D-1",
+          "q": "Do we version the public API under /v2 or negotiate by header?",
+          "note": "Path versioning is simpler for clients; header negotiation keeps URLs stable.",
+          "pill": { "pill": "needs call", "tone": "you" }
+        },
+        {
+          "id": "D-2",
+          "q": "Move background jobs off the primary DB onto the queue?",
+          "note": "Reduces lock contention during the cutover window.",
+          "pill": { "pill": "leaning yes", "tone": "wip" }
+        },
+        {
+          "id": "D-3",
+          "q": "Adopt the shared design tokens package now or after launch?",
+          "pill": { "pill": "after launch", "tone": "done" }
+        }
+      ]
+    },
+    {
+      "kind": "table",
+      "title": "Milestones",
+      "columns": ["Milestone", "Owner", "Status"],
+      "rows": [
+        ["Auth rewrite", "web", { "pill": "shipped", "tone": "go" }],
+        ["Rate limiting", "api", { "pill": "in review", "tone": "wip" }],
+        ["Read-replica cutover", "platform", { "pill": "this week", "tone": "you" }],
+        ["Billing export", "worker", { "pill": "blocked", "tone": "srv" }]
+      ]
+    },
+    {
+      "kind": "split",
+      "title": "This sprint",
+      "columns": [
+        {
+          "h3": "Shipped",
+          "style": "check",
+          "items": [
+            { "text": "Session tokens rotated on every login", "who": "web" },
+            { "text": "Idempotency keys on all POST endpoints", "who": "api" },
+            { "text": "Structured logs shipped to the collector", "who": "worker" }
+          ]
+        },
+        {
+          "h3": "Pending",
+          "style": "pend",
+          "items": [
+            { "text": "Backfill job for legacy accounts", "who": "worker" },
+            { "text": "Load test the new rate limiter", "who": "api" }
+          ]
+        }
+      ]
+    }
+  ]
+}

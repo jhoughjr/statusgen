@@ -265,7 +265,11 @@
       card.append(el("div", { class: "empty" }, "Nothing tracked yet."));
     } else {
       for (const item of items) {
-        const body = el("div", { class: "body" }, el("div", { class: "q" }, item.q ?? ""));
+        // Optional item.href renders the title as a link.
+        const qContent = item.href
+          ? el("a", { class: "qlink", href: item.href, target: "_blank", rel: "noopener" }, item.q ?? "")
+          : item.q ?? "";
+        const body = el("div", { class: "body" }, el("div", { class: "q" }, qContent));
         if (item.note) body.append(el("div", { class: "note" }, item.note));
         if (item.meta) body.append(el("div", { class: "meta" }, item.meta));
 

@@ -63,7 +63,7 @@ A cell is a string, or `{ "pill": "text", "tone": "…" }` to render a pill.
 ### `cards` — id / question / note / pill rows
 ```json
 { "kind": "cards", "title": "Shipped this week", "count": "9 tracked", "desc": "…",
-  "items": [ { "id": "#2", "q": "Title", "note": "…", "meta": "Owner: Jimmy", "pill": { "text": "Resolved", "tone": "done" } } ] }
+  "items": [ { "id": "#2", "q": "Title", "note": "…", "meta": "Owner: Jimmy", "href": "https://…(optional, links the title)", "pill": { "text": "Resolved", "tone": "done" } } ] }
 ```
 All item fields optional except `q`.
 

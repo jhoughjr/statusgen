@@ -140,3 +140,7 @@ footer .paths { display: grid; gap: 0.6rem; }
 /* Loading / error states while board.json is fetched */
 .board-loading, .board-error { padding: 2rem 0; color: var(--ink-faint); font-size: 0.95rem; }
 .board-error { color: #c0392b; }
+
+/* linked card titles (item.href) */
+.q .qlink { color: inherit; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
+.q .qlink:hover { color: var(--accent); }

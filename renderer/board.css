@@ -61,6 +61,11 @@ h1 { font-size: clamp(1.6rem, 4.5vw, 2.3rem); line-height: 1.15; letter-spacing:
 .stat { background: var(--panel); border: 1px solid var(--hair); border-radius: 12px; padding: 0.9rem 1rem; }
 .stat .n { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
 .stat .l { font-size: 0.76rem; color: var(--ink-soft); margin-top: 0.35rem; }
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1.6rem; margin: 1.6rem 0 0; }
+.compare-col { min-width: 0; }
+.compare-head { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; font-weight: 650; color: var(--ink-soft); margin: 0; }
+.compare .stats { margin: 0.6rem 0 0; }
+@media (max-width: 640px) { .compare { grid-template-columns: 1fr; } }
 .stat.go .n { color: var(--go); } .stat.you .n { color: var(--you); }
 .stat.srv .n { color: var(--srv); } .stat.wip .n { color: var(--wip); } .stat.done .n { color: var(--done); }
 

@@ -315,8 +315,35 @@
     return el("section", { class: "block" }, [buildHeading(section), split]);
   }
 
+  // compare — two (or more) columns, each a labeled group of stat tiles, for
+  // side-by-side comparison (e.g. Phoenix client vs MWServer server). Reuses the
+  // .stats/.stat tile styling so each side matches the hero tiles.
+  function renderCompare(section) {
+    const cols = Array.isArray(section.columns) ? section.columns : [];
+    const wrap = el("div", { class: "compare" });
+    for (const c of cols) {
+      const col = el("div", { class: "compare-col" });
+      const head = el("div", { class: "compare-head" });
+      if (c.icon) head.append(el("span", { class: "sec-icon", "aria-hidden": "true" }, c.icon));
+      head.append(document.createTextNode(c.title || ""));
+      col.append(head);
+      const tiles = el("div", { class: "stats" });
+      for (const item of c.items || []) {
+        const tone = item.tone ? ` ${item.tone}` : "";
+        const stat = el("div", { class: `stat${tone}` });
+        stat.append(el("div", { class: "n" }, item.n ?? ""));
+        stat.append(el("div", { class: "l" }, item.label ?? ""));
+        tiles.append(stat);
+      }
+      col.append(tiles);
+      wrap.append(col);
+    }
+    return el("section", { class: "block" }, [buildHeading(section), wrap]);
+  }
+
   const RENDERERS = {
     stats: renderStats,
+    compare: renderCompare,
     banner: renderBanner,
     barchart: renderBarchart,
     pie: renderPie,

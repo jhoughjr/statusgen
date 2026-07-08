@@ -109,6 +109,12 @@
       stat.append(el("div", { class: "l" }, item.label ?? ""));
       wrap.append(stat);
     }
+    // A titled stats section renders as a normal labeled block (e.g. a "Server"
+    // row that mirrors the hero tiles, for side-by-side comparison); the
+    // untitled hero row stays wrapper-free directly under the stamp.
+    if (section.title || section.icon) {
+      return el("section", { class: "block" }, [buildHeading(section), wrap]);
+    }
     return wrap;
   }
 

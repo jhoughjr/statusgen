@@ -223,11 +223,12 @@ generate_board_json() {
   done < <(echo "$app_statuses" | grep -E '^\s*\{')
 
   # Emit board.json
-  cat <<'EOF'
+  fleet_stamp="Updated $(date '+%Y-%m-%d %H:%M %Z') — live platform metrics"
+  cat <<EOF
 {
   "title": "Roost Fleet Health",
   "eyebrow": "Platform Status",
-  "stamp": "Updated 2026-07-08 — live platform metrics",
+  "stamp": "$fleet_stamp",
   "sections": [
     {
       "kind": "stats",

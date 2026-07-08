@@ -85,6 +85,7 @@
 
   function buildHeading(section) {
     const h2 = el("h2");
+    if (section.icon) h2.append(el("span", { class: "sec-icon", "aria-hidden": "true" }, section.icon));
     h2.append(document.createTextNode(section.title || ""));
     if (section.count) h2.append(el("span", { class: "count" }, section.count));
     if (section.desc) h2.append(el("span", { class: "desc" }, ` — ${section.desc}`));

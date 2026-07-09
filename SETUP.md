@@ -190,3 +190,27 @@ bin/update.sh status-site demo
 | `dig` resolves but `curl`/browser says "can't resolve" | Stale negative DNS cache on your client. macOS: `sudo dscacheutil -flushcache && sudo killall -HUP mDNSResponder`. |
 | Edited `config.yml` but ingress didn't change | The tunnel is **dashboard-managed**, so it ignores local `config.yml`. Either manage it in the dashboard, or recreate it locally-managed as in §4. |
 | `route dns` says record exists | A leftover/wildcard record is shadowing it — delete that record in the DNS panel and re-run. |
+
+## Scheduled refresh (keep "last status = current state")
+
+Status pushes are event-driven, so the board ages between pushes. To keep it
+honest, run `roost status "scheduled refresh"` on a timer from an always-on
+machine **that can run your test suite** (stats are measured fresh on every
+push — see `ROOST_STATS_TEST_CMD`). The Dokku host only serves the site; the
+scheduled pusher can be any box with:
+
+1. clones of `roost`, `statusgen`, the status site repo, and the measured repo
+2. `~/.roostrc` (NB: shell-sourced — quote values containing spaces, e.g.
+   `ROOST_STATS_TEST_CMD="npm run test:coverage"`)
+3. its SSH key registered with Dokku (`sudo dokku ssh-keys:add <name>` on the
+   host) and with your git forge for pulls
+4. (macOS) a LaunchAgent, e.g. `~/Library/LaunchAgents/<label>.plist` with
+   `StartInterval` 3600 running `roost status "scheduled refresh"` — make sure
+   its `PATH` includes your node/npm install; launchd does not source your shell
+   profile. Logs: point StandardOut/ErrPath at `~/Library/Logs/`.
+
+The status site's `push-status.sh` should push to BOTH the dokku remote and a
+git-forge `origin` mirror, so every machine sees current history.
+
+Optional: `gh auth login` on the pusher keeps the CI-runs board section fresh;
+without it that collector no-ops (non-fatal by contract).

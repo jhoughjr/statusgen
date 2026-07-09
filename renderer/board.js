@@ -341,9 +341,27 @@
     return el("section", { class: "block" }, [buildHeading(section), wrap]);
   }
 
+  // console — a terminal-styled log block (dark, monospace). Each line is a
+  // status dot (tone-colored) + a status word + text + right-aligned meta.
+  // Used for CI runs. Reads section.lines: {text, meta, status, tone}.
+  function renderConsole(section) {
+    const term = el("div", { class: "console" });
+    for (const ln of section.lines || section.items || []) {
+      const tone = ln.tone ? ` ${ln.tone}` : "";
+      const line = el("div", { class: "console-line" });
+      line.append(el("span", { class: `console-dot${tone}`, "aria-hidden": "true" }));
+      line.append(el("span", { class: "console-status" }, ln.status ?? (ln.pill && ln.pill.text) ?? ""));
+      line.append(el("span", { class: "console-text" }, ln.text ?? ln.q ?? ""));
+      if (ln.meta || ln.note) line.append(el("span", { class: "console-meta" }, ln.meta ?? ln.note));
+      term.append(line);
+    }
+    return el("section", { class: "block" }, [buildHeading(section), term]);
+  }
+
   const RENDERERS = {
     stats: renderStats,
     compare: renderCompare,
+    console: renderConsole,
     banner: renderBanner,
     barchart: renderBarchart,
     pie: renderPie,

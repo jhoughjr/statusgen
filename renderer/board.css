@@ -66,6 +66,17 @@ h1 { font-size: clamp(1.6rem, 4.5vw, 2.3rem); line-height: 1.15; letter-spacing:
 .compare-head { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; font-weight: 650; color: var(--ink-soft); margin: 0; }
 .compare .stats { margin: 0.6rem 0 0; }
 @media (max-width: 640px) { .compare { grid-template-columns: 1fr; } }
+.console { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 0.85rem 1rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; line-height: 1.75; overflow-x: auto; }
+.console-line { display: flex; align-items: center; gap: 0.7rem; white-space: nowrap; }
+.console-dot { width: 0.55rem; height: 0.55rem; border-radius: 999px; flex: 0 0 auto; background: #6e7681; }
+.console-dot.go { background: var(--go); }
+.console-dot.you { background: var(--you); }
+.console-dot.wip { background: var(--wip); }
+.console-dot.srv { background: var(--srv); }
+.console-dot.done { background: var(--done); }
+.console-status { width: 6rem; flex: 0 0 auto; color: #8b949e; }
+.console-text { color: #c9d1d9; }
+.console-meta { margin-left: auto; padding-left: 1.2rem; color: #6e7681; }
 .stat.go .n { color: var(--go); } .stat.you .n { color: var(--you); }
 .stat.srv .n { color: var(--srv); } .stat.wip .n { color: var(--wip); } .stat.done .n { color: var(--done); }
 

@@ -113,10 +113,17 @@ def upsert_section(board, title, section, after_kind="compare"):
 
 # ── coverage ─────────────────────────────────────────────────────────────
 
-def line_coverage(repo):
-    """Line % from an istanbul/v8 coverage-summary.json, or None."""
+def line_coverage(repo, min_mtime=None):
+    """Line % from an istanbul/v8 coverage-summary.json, or None.
+
+    min_mtime: when set, a summary older than this timestamp is treated as
+    stale leftovers from a previous run and ignored — a status push must
+    report current state, never a number that predates the run.
+    """
     p = os.path.join(repo, "coverage", "coverage-summary.json")
     if not os.path.exists(p):
+        return None
+    if min_mtime is not None and os.path.getmtime(p) < min_mtime:
         return None
     return round(json.load(open(p))["total"]["lines"]["pct"])
 

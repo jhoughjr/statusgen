@@ -18,6 +18,7 @@ Config (~/.roostrc):
 Non-fatal by contract: no config → skip; any failure → board untouched, exit 0.
 """
 import sys
+import time
 import pathlib
 from datetime import datetime
 
@@ -39,11 +40,16 @@ def main():
         print(f"repo-stats: {board_path} not found — skipping")
         return 0
 
+    run_started = time.time()
     count = lib.test_count(repo, cfg.get("ROOST_STATS_TEST_CMD", "npx vitest run"))
     if count is None:
         print("repo-stats: could not read test count — leaving tiles as-is")
         return 0
-    cov = lib.line_coverage(repo)
+    # Only trust coverage written by THIS run — a status push reports current
+    # state, never leftovers from whenever coverage last happened to run.
+    cov = lib.line_coverage(repo, min_mtime=run_started)
+    if cov is None:
+        print("repo-stats: no fresh coverage from this run (set ROOST_STATS_TEST_CMD to a --coverage command) — omitting coverage")
     base = lib.find_stat(lib.board_at(site, rel), "Tests green")
     delta = count - base if base is not None else 0
 

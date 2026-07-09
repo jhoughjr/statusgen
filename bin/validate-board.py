@@ -4,7 +4,8 @@ Usage: validate-board.py <board.json> [...]   Exits 1 on any invalid board.
 """
 import json, sys
 
-KINDS = {"stats", "banner", "barchart", "pie", "table", "cards", "split"}
+KINDS = {"stats", "banner", "barchart", "pie", "table", "cards", "split",
+         "compare", "console"}
 fail = 0
 for path in sys.argv[1:]:
     try:
@@ -25,6 +26,17 @@ for path in sys.argv[1:]:
                             f"section {i}: pill must be {{text, tone}}"
             if k == "split":
                 assert "columns" in s, f"section {i}: split needs columns"
+            if k == "compare":
+                assert isinstance(s.get("columns"), list) and s["columns"], \
+                    f"section {i}: compare needs columns"
+                for c in s["columns"]:
+                    for it in c.get("items", []):
+                        assert "n" in it and "label" in it, \
+                            f"section {i}: compare items need n+label"
+            if k == "console":
+                assert isinstance(s.get("lines"), list), f"section {i}: console needs lines"
+                for ln in s["lines"]:
+                    assert "text" in ln, f"section {i}: console lines need text"
         print(f"✓ {path}")
     except (AssertionError, json.JSONDecodeError, OSError) as e:
         print(f"✗ {path}: {e}")

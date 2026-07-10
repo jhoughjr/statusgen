@@ -21,10 +21,18 @@ import lib
 SECTION = "API consumption"
 COLUMN = "Consumed"
 
+# Surfaces whose camelCase split reads awkwardly on the board.
+ALIASES = {"Po": "Purchase Order", "Gsx": "GSX"}
+
 
 def split_camel_case(s):
     """Split camelCase into words with spaces (InventoryProductItem → Inventory Product Item)."""
     return re.sub(r'(?<!^)(?=[A-Z])', ' ', s)
+
+
+def display_name(api_name):
+    """Board label for an API surface: alias if defined, else camelCase split."""
+    return ALIASES.get(api_name, split_camel_case(api_name))
 
 
 def scan_phoenix_for_api_calls(repo_dir):
@@ -81,9 +89,8 @@ def build_items(api_calls):
     items = []
     for api_name in sorted(api_calls.keys(), key=lambda k: api_calls[k], reverse=True):
         count = api_calls[api_name]
-        spaced_name = split_camel_case(api_name)
         items.append({
-            "text": f"{spaced_name} — {count} call site{'s' if count != 1 else ''}"
+            "text": f"{display_name(api_name)} — {count} call site{'s' if count != 1 else ''}"
         })
 
     return items

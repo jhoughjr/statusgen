@@ -107,13 +107,23 @@ def main():
         print("repo-stats: no compare section found — nothing to patch")
         return 0
 
+    # Optional second branch (e.g. main while the headline tracks dev):
+    # shown in the stamp as the stable record, without touching the tiles.
+    extra = ""
+    branch2 = cfg.get("ROOST_STATS_CI_BRANCH2", "")
+    if branch2 and branch2 != branch:
+        r2, _ = ci_report(slug, branch2)
+        if r2 is not None:
+            extra = (f" · {branch2}@{str(r2.get('sha',''))[:7]} "
+                     f"{int(r2['tests_passed']):,}")
+
     ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
     name = cfg.get("ROOST_STATS_LABEL") or slug.split("/")[-1]
     board["stamp"] = (f"Updated {ts} — {name} {count:,} tests green · {cov}% coverage "
-                      f"· CI {branch}@{sha} · +{delta:,} added (7d)")
+                      f"· CI {branch}@{sha}{extra} · +{delta:,} added (7d)")
 
     lib.save_board(board_path, board)
-    print(f"repo-stats: tests={count} coverage={cov}% (CI {branch}@{sha}, run {run_id}, Δ+{delta} vs 7d-ago {base})")
+    print(f"repo-stats: tests={count} coverage={cov}% (CI {branch}@{sha}, run {run_id}, Δ+{delta} vs 7d-ago {base}){extra and ' |' + extra}")
     return 0
 
 

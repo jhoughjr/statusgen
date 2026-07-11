@@ -7,6 +7,10 @@ CI's clean checkout is the single source of truth: numbers are pinned to the
 SHA CI measured, so local checkout state, session worktrees, node versions,
 and command variants can never skew what gets reported.
 
+When the artifact is missing (uploads are best-effort — GitHub's artifact
+storage quota can block them for hours after a cleanup), falls back to the
+same report JSON that CI's "Emit test report" step prints to the run log.
+
   - Tests green : tests_passed from the CI report
   - Added (7d)  : delta vs the board value as committed ~7 days ago
   - Coverage    : coverage_lines_pct from the CI report
@@ -36,9 +40,30 @@ import lib
 ARTIFACT = "test-report"
 
 
+def log_report(slug, rid):
+    """The report JSON as printed to the run log by the Emit step — reachable
+    even when the artifact upload was quota-blocked. Returns dict or None."""
+    out = subprocess.run(
+        ["gh", "run", "view", rid, "-R", slug, "--log"],
+        capture_output=True, text=True, timeout=120)
+    if out.returncode != 0:
+        return None
+    for line in out.stdout.splitlines():
+        if '"tests_passed"' not in line or "{" not in line:
+            continue
+        try:
+            report = json.loads(line[line.index("{"):])
+        except ValueError:
+            continue
+        if "coverage_lines_pct" in report:
+            return report
+    return None
+
+
 def ci_report(slug, branch):
     """test-report.json from the newest successful CI run on `branch` that
-    published one. Returns (report_dict, run_id) or (None, None)."""
+    published one — from the artifact, or the run log when the artifact is
+    missing. Returns (report_dict, run_id) or (None, None)."""
     out = subprocess.run(
         ["gh", "run", "list", "-R", slug, "-b", branch, "-s", "success",
          "-L", "10", "--json", "databaseId"],
@@ -52,11 +77,15 @@ def ci_report(slug, branch):
             dl = subprocess.run(
                 ["gh", "run", "download", rid, "-R", slug, "-n", ARTIFACT, "-D", td],
                 capture_output=True, text=True, timeout=120)
-            if dl.returncode != 0:
-                continue  # older run without the artifact — try the next
-            path = pathlib.Path(td) / "test-report.json"
-            if path.exists():
-                return json.loads(path.read_text()), rid
+            if dl.returncode == 0:
+                path = pathlib.Path(td) / "test-report.json"
+                if path.exists():
+                    return json.loads(path.read_text()), rid
+        report = log_report(slug, rid)
+        if report is not None:
+            print(f"repo-stats: no artifact on run {rid} — using report from its log")
+            return report, rid
+        # older run without the report — try the next
     return None, None
 
 

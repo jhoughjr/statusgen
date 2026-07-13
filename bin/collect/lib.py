@@ -171,11 +171,20 @@ def console_lines(sources):
             continue
         for r in data:
             state = r.get("conclusion") or r.get("status") or ""
-            when = r.get("createdAt", "")[:16].replace("T", " ")
-            lines.append({
+            # createdAt is UTC ISO-8601 (…Z). Pass it as `ts` so the renderer
+            # localizes it to the viewer's timezone (fmtTime); only the trigger
+            # event goes in meta. (Baking a "… UTC" string here showed UTC to
+            # everyone.)
+            line = {
                 "status": state.replace("_", " ") or "unknown",
                 "tone": TONE.get(state, "none"),
                 "text": f"{label} · {r.get('headBranch', '?')}",
-                "meta": f"{r.get('event', '')} · {when} UTC",
-            })
+            }
+            event = r.get("event", "")
+            if event:
+                line["meta"] = f"· {event}"
+            ts = r.get("createdAt", "")
+            if ts:
+                line["ts"] = ts
+            lines.append(line)
     return lines

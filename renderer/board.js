@@ -359,7 +359,7 @@
 
   // console — a terminal-styled log block (dark, monospace). Each line is a
   // status dot (tone-colored) + a status word + text + right-aligned meta.
-  // Used for CI runs. Reads section.lines: {text, meta, status, tone}.
+  // Used for CI runs. Reads section.lines: {text, meta, status, tone, href, cmd}.
   function renderConsole(section) {
     const term = el("div", { class: "console" });
     for (const ln of section.lines || section.items || []) {
@@ -367,7 +367,19 @@
       const line = el("div", { class: "console-line" });
       line.append(el("span", { class: `console-dot${tone}`, "aria-hidden": "true" }));
       line.append(el("span", { class: "console-status" }, ln.status ?? (ln.pill && ln.pill.text) ?? ""));
-      line.append(el("span", { class: "console-text" }, ln.text ?? ln.q ?? ""));
+      const text = ln.text ?? ln.q ?? "";
+      line.append(el("span", { class: "console-text" },
+        ln.href ? el("a", { href: ln.href, target: "_blank", rel: "noopener" }, text) : text));
+      if (ln.cmd) {
+        const chip = el("button", { class: "console-cmd", type: "button", title: "copy to clipboard" }, ln.cmd);
+        chip.addEventListener("click", () => {
+          navigator.clipboard.writeText(ln.cmd).then(() => {
+            chip.classList.add("copied");
+            setTimeout(() => chip.classList.remove("copied"), 1200);
+          });
+        });
+        line.append(chip);
+      }
       const metaText = [fmtTime(ln.ts), ln.meta ?? ln.note].filter(Boolean).join(" ");
       if (metaText) line.append(el("span", { class: "console-meta" }, metaText));
       term.append(line);

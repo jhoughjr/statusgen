@@ -67,6 +67,18 @@ A cell is a string, or `{ "pill": "text", "tone": "…" }` to render a pill.
 ```
 All item fields optional except `q`.
 
+### `console` — terminal-styled log lines (CI runs)
+```json
+{ "kind": "console", "icon": "⚙️", "title": "CI — recent runs", "count": "8 runs",
+  "lines": [ { "status": "success", "tone": "go", "text": "Phoenix · dev", "meta": "· push",
+               "ts": "2026-07-13T19:03:04Z", "href": "https://github.com/…/runs/123",
+               "cmd": "gh run watch -R owner/repo" } ] }
+```
+`tone` colors the dot. `ts` (UTC ISO) localizes to the viewer's timezone and prefixes `meta`.
+`href` (optional) links the line text — e.g. straight to the Actions run. `cmd` (optional)
+renders a copy-to-clipboard chip after the text — e.g. the `gh run watch` line that follows
+each repo's runs.
+
 ### `split` — two columns of checklist items
 ```json
 { "kind": "split", "title": "API consumption",

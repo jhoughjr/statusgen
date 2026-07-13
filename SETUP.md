@@ -209,7 +209,7 @@ scheduled pusher can be any box with:
    its `PATH` includes your node/npm install; launchd does not source your shell
    profile. Logs: point StandardOut/ErrPath at `~/Library/Logs/`.
 
-The status site's `push-status.sh` should push to BOTH the dokku remote and a
+`roost status` (its deploy step) should push to BOTH the dokku remote and a
 git-forge `origin` mirror, so every machine sees current history.
 
 Optional: `gh auth login` on the pusher keeps the CI-runs board section fresh;

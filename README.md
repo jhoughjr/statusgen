@@ -109,7 +109,8 @@ A board is `{ title, eyebrow, stamp, sections: [...] }`. Sections render in
 order, each by its `kind`: `stats` (tiles), `banner`, `barchart`, `pie`,
 `table`, `cards`, `split`. Full spec + examples:
 **[BOARD_SCHEMA.md](BOARD_SCHEMA.md)**. A complete example:
-**[examples/demo.board.json](examples/demo.board.json)**.
+**[examples/demo.board.json](examples/demo.board.json)**. How statusgen, the
+roost driver, and a site divide the work: **[INTERFACES.md](INTERFACES.md)**.
 
 Smallest possible board:
 

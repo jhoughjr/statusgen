@@ -15,11 +15,14 @@ The renderer reads `board.json`, iterates `sections` in order, and renders each 
   "title": "Demo",
   "eyebrow": "Demo Office",
   "stamp": "Updated 2026-07-07 — one-line status line",
+  "links": [ { "label": "History →", "href": "history/" } ],
   "sections": [ /* ordered array of section objects, each with a "kind" */ ]
 }
 ```
 
-`title` sets `<title>` and the H1. `eyebrow` is the small uppercase kicker. `stamp` is the mono sub-line under the title.
+`title` sets `<title>` and the H1. `eyebrow` is the small uppercase kicker. `stamp` is the mono sub-line under the title. `links` (optional) is an array of `{ label, href }` rendered as a header nav row — e.g. a detail page's "← back" or "all history". A board also auto-shows a **History →** link when a sibling `history/board.json` exists.
+
+**Section headings** — any titled section may add `"icon"` (leading emoji), `"count"` (mono badge after the title), `"desc"` (grey suffix), and `"href"` (turns the title into a link, e.g. to a detail page). These are generic across kinds.
 
 ## Section kinds
 
@@ -76,6 +79,15 @@ All item fields optional except `q`.
   ] }
 ```
 `style` ∈ `check` (✓) | `pend` (◯).
+
+### `console` — a log / feed of tone-dotted lines
+```json
+{ "kind": "console", "icon": "🕘", "title": "CI — recent runs", "count": "7 runs", "desc": "…",
+  "href": "/clauffice/history/",
+  "lines": [ { "status": "success", "tone": "go", "text": "Phoenix · dev",
+               "ts": "2026-07-13T20:05:42Z", "meta": "· pull_request" } ] }
+```
+Each line renders a tone-colored dot + `status` word + `text`, with an optional right-aligned meta. `tone` uses the palette above. `ts` is a **UTC ISO-8601** instant (`…Z`) that the renderer localizes to the *viewer's* timezone; `meta` is any extra suffix, shown after the localized time. **Collectors must emit `ts`, never a pre-formatted local/UTC string** — otherwise every viewer sees the collector machine's clock. (Legacy field aliases the renderer still accepts: `items` for `lines`, `q` for `text`, `note` for `meta`.) Used by the History boards and the CI-runs section.
 
 ## Collectible fields (for `collect` scripts)
 

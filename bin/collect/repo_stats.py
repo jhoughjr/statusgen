@@ -18,6 +18,12 @@ same report JSON that CI's "Emit test report" step prints to the run log.
 Patches the FIRST column of the board's compare section (or is a no-op if the
 board has none), and refreshes the top-of-board stamp.
 
+When the report carries the richer `coverage` object (emitted by newer CI),
+also patches a "Test Coverage" barchart section: the four metric bars
+(Lines/Statements/Functions/Branches, matched by label) and a note with the
+zero-coverage file count and top worst-offenders by uncovered lines. Old
+reports without the object leave the chart untouched.
+
 Config (~/.roostrc):
   ROOST_STATS_BOARD=clauffice                          # board dir under the status site
   ROOST_STATS_GH_REPO=Austin-MacWorks/Phoenix-Electron # repo slug for gh
@@ -89,6 +95,33 @@ def ci_report(slug, branch):
     return None, None
 
 
+def patch_coverage_chart(board, covd, count):
+    """Patch a "Test Coverage" barchart from the report's `coverage` object:
+    metric bars matched by label, note rebuilt with the zero-coverage file
+    count and top-3 worst offenders (ranked upstream by uncovered lines).
+    Returns True when a matching section was patched."""
+    keys = {"Lines": "lines_pct", "Statements": "statements_pct",
+            "Functions": "functions_pct", "Branches": "branches_pct"}
+    for s in board.get("sections", []):
+        if s.get("kind") != "barchart" or s.get("title") != "Test Coverage":
+            continue
+        for bar in s.get("series", []):
+            k = keys.get(str(bar.get("label", "")))
+            if k and k in covd:
+                bar["value"] = round(float(covd[k]), 1)
+        bits = [f"{count:,} tests green"]
+        if covd.get("files_total"):
+            bits.append(f"{covd.get('files_zero', 0)} of {covd['files_total']} "
+                        f"files at 0%")
+        worst = [f"{w['file'].rsplit('/', 1)[-1]} ({w['uncovered_lines']})"
+                 for w in (covd.get("worst") or [])[:3]]
+        if worst:
+            bits.append("most uncovered lines: " + ", ".join(worst))
+        s["note"] = " · ".join(bits)
+        return True
+    return False
+
+
 def main():
     cfg = lib.read_roostrc()
     slug = cfg.get("ROOST_STATS_GH_REPO", "")
@@ -132,8 +165,11 @@ def main():
                 tile["n"] = f"{cov}%"
         patched = True
 
-    if not patched:
-        print("repo-stats: no compare section found — nothing to patch")
+    covd = report.get("coverage") or {}
+    chart = patch_coverage_chart(board, covd, count) if covd else False
+
+    if not (patched or chart):
+        print("repo-stats: no compare or Test Coverage section found — nothing to patch")
         return 0
 
     # Optional second branch (e.g. main while the headline tracks dev):
@@ -152,7 +188,7 @@ def main():
                       f"· CI {branch}@{sha}{extra} · +{delta:,} added (7d)")
 
     lib.save_board(board_path, board)
-    print(f"repo-stats: tests={count} coverage={cov}% (CI {branch}@{sha}, run {run_id}, Δ+{delta} vs 7d-ago {base}){extra and ' |' + extra}")
+    print(f"repo-stats: tests={count} coverage={cov}% chart={'patched' if chart else 'n/a'} (CI {branch}@{sha}, run {run_id}, Δ+{delta} vs 7d-ago {base}){extra and ' |' + extra}")
     return 0
 
 

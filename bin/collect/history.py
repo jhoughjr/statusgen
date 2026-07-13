@@ -137,10 +137,15 @@ for p in pushes:
 def line_for(p, slug):
     text, status, tone = classify(p["subject"])
     others = [b for b in p["boards"] if b != slug]
-    meta = p["dt"].strftime("%m-%d %H:%M")
+    # Emit the push instant in UTC (ISO-8601 Z); the renderer localizes it to
+    # the viewer's timezone. Committer tz varies by machine (a hand push from
+    # the Mac vs the mini's hourly refresh), so a local time formatted here
+    # would be inconsistent — collect in UTC, display in locale.
+    line = {"status": status, "tone": tone, "text": text[:160],
+            "ts": p["dt"].astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
     if others:
-        meta += " · also " + "+".join(others)
-    return {"status": status, "tone": tone, "text": text[:160], "meta": meta}
+        line["meta"] = "· also " + "+".join(others)
+    return line
 
 
 def write_shell(rel_dir, page_title):
@@ -218,8 +223,9 @@ board = {
             {"n": str(len(pushes)), "label": "Status pushes", "tone": "go"},
             {"n": str(per_day.get(today, 0)), "label": "Today", "tone": "you"},
             {"n": str(len(board_set)), "label": "Boards tracked", "tone": "go"},
-            {"n": pushes[0]["dt"].strftime("%m-%d %H:%M") if pushes else "—",
-             "label": "Latest push", "tone": "done"},
+            ({"ts": pushes[0]["dt"].astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "label": "Latest push", "tone": "done"} if pushes
+             else {"n": "—", "label": "Latest push", "tone": "done"}),
         ]},
         {"kind": "barchart", "icon": "📈", "title": "Activity",
          "desc": f"pushes per day, last {CHART_DAYS} days",

@@ -49,6 +49,18 @@
     });
   }
 
+  // Formats a machine-readable timestamp (collectors emit UTC ISO-8601, e.g.
+  // "2026-07-13T21:42:00Z") into the VIEWER's local time. Collect in UTC,
+  // display in locale. Returns "" if absent/unparseable so callers fall back.
+  function fmtTime(ts) {
+    if (!ts) return "";
+    const t = Date.parse(ts);
+    if (Number.isNaN(t)) return "";
+    return new Date(t).toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+  }
+
   // Maps a barchart series/legend `fill` token to the CSS variable that
   // colors it. Keep in sync with the .bar-fill.<fill> rules in board.css.
   const FILL_VAR = { code: "var(--accent)", gen: "var(--done)" };
@@ -109,7 +121,7 @@
     for (const item of section.items || []) {
       const tone = item.tone ? ` ${item.tone}` : "";
       const stat = el("div", { class: `stat${tone}` });
-      stat.append(el("div", { class: "n" }, item.n ?? ""));
+      stat.append(el("div", { class: "n" }, item.ts ? fmtTime(item.ts) : (item.n ?? "")));
       stat.append(el("div", { class: "l" }, item.label ?? ""));
       wrap.append(stat);
     }
@@ -335,7 +347,7 @@
       for (const item of c.items || []) {
         const tone = item.tone ? ` ${item.tone}` : "";
         const stat = el("div", { class: `stat${tone}` });
-        stat.append(el("div", { class: "n" }, item.n ?? ""));
+        stat.append(el("div", { class: "n" }, item.ts ? fmtTime(item.ts) : (item.n ?? "")));
         stat.append(el("div", { class: "l" }, item.label ?? ""));
         tiles.append(stat);
       }
@@ -356,7 +368,8 @@
       line.append(el("span", { class: `console-dot${tone}`, "aria-hidden": "true" }));
       line.append(el("span", { class: "console-status" }, ln.status ?? (ln.pill && ln.pill.text) ?? ""));
       line.append(el("span", { class: "console-text" }, ln.text ?? ln.q ?? ""));
-      if (ln.meta || ln.note) line.append(el("span", { class: "console-meta" }, ln.meta ?? ln.note));
+      const metaText = [fmtTime(ln.ts), ln.meta ?? ln.note].filter(Boolean).join(" ");
+      if (metaText) line.append(el("span", { class: "console-meta" }, metaText));
       term.append(line);
     }
     return el("section", { class: "block" }, [buildHeading(section), term]);

@@ -17,7 +17,10 @@ for path in sys.argv[1:]:
             assert k in KINDS, f"section {i}: unknown kind {k!r}"
             if k == "stats":
                 for it in s.get("items", []):
-                    assert "n" in it and "label" in it, f"section {i}: stats items need n+label"
+                    # `ts` (a UTC timestamp the renderer localizes) is an
+                    # alternative to a pre-formatted `n` value.
+                    assert ("n" in it or "ts" in it) and "label" in it, \
+                        f"section {i}: stats items need n-or-ts + label"
             if k == "cards":
                 for it in s.get("items", []):
                     assert "q" in it, f"section {i}: cards items need q"

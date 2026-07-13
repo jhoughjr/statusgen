@@ -153,7 +153,7 @@ TONE = {
 
 def gh_runs(repo, limit):
     r = sh(["gh", "run", "list", "--repo", repo, "--limit", str(limit),
-            "--json", "status,conclusion,headBranch,event,createdAt"])
+            "--json", "status,conclusion,headBranch,event,createdAt,url"])
     if r.returncode != 0:
         return None
     try:
@@ -186,5 +186,16 @@ def console_lines(sources):
             ts = r.get("createdAt", "")
             if ts:
                 line["ts"] = ts
+            url = r.get("url", "")
+            if url:
+                line["href"] = url
             lines.append(line)
+        # A terminal watch line per repo: the cmd renders as a
+        # copy-to-clipboard chip; with no run id, gh prompts with
+        # in-progress runs — the "watch it live" gesture.
+        if data:
+            lines.append({
+                "status": "watch", "tone": "none", "text": label,
+                "cmd": f"gh run watch -R {repo}",
+            })
     return lines

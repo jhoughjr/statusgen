@@ -82,6 +82,12 @@ h2 .sec-link:hover { color: var(--accent); text-decoration: underline; }
 .console-dot.done { background: var(--done); }
 .console-status { width: 6rem; flex: 0 0 auto; color: #8b949e; }
 .console-text { color: #c9d1d9; }
+.console-text a { color: inherit; text-decoration: underline dotted #6e7681; text-underline-offset: 3px; }
+.console-text a:hover { color: #fff; text-decoration-color: #c9d1d9; }
+.console-cmd { font: inherit; color: #8b949e; background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 0 0.5rem; cursor: pointer; }
+.console-cmd:hover { color: #c9d1d9; border-color: #6e7681; }
+.console-cmd.copied { color: var(--go); border-color: var(--go); }
+.console-cmd.copied::after { content: " ✓"; }
 .console-meta { margin-left: auto; padding-left: 1.2rem; color: #6e7681; }
 .stat.go .n { color: var(--go); } .stat.you .n { color: var(--you); }
 .stat.srv .n { color: var(--srv); } .stat.wip .n { color: var(--wip); } .stat.done .n { color: var(--done); }

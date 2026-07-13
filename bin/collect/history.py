@@ -26,8 +26,11 @@ import sys
 
 MAX_LINES = 40        # kept for parity; per-board caps below
 CHART_DAYS = 14
-PER_BOARD_MAX = 15
+PER_BOARD_MAX = 15    # preview cap in the umbrella overview
+DETAIL_MAX = 200      # full-log cap on a board's own /history/ detail page
 DEFAULT_ICON = "📋"
+TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "..", "..", "renderer", "board.template.html")
 
 
 def resolve_site():
@@ -79,8 +82,12 @@ for rec in records:
         continue
     head, _, files = rec.partition("\n")
     sha, ci, subject = head.split("\x1f")
-    boards = sorted({f.split("/")[0] for f in files.splitlines()
-                     if f.endswith("board.json") and not f.startswith("history/")})
+    # Only a top-level "<slug>/board.json" counts as a push to that board — not
+    # the umbrella "history/board.json" nor the generated "<slug>/history/board.json"
+    # detail pages (which change every run and would otherwise pollute the log).
+    boards = sorted({parts[0] for f in files.splitlines()
+                     if (parts := f.split("/")) and len(parts) == 2
+                     and parts[1] == "board.json" and parts[0] != "history"})
     if not boards:
         continue  # only history/board.json itself changed — not a real push
     dt = datetime.datetime.strptime(ci, "%Y-%m-%d %H:%M:%S %z")
@@ -127,25 +134,76 @@ for p in pushes:
         per_board.setdefault(slug, []).append(p)
         last_dt.setdefault(slug, p["dt"])
 
+def line_for(p, slug):
+    text, status, tone = classify(p["subject"])
+    others = [b for b in p["boards"] if b != slug]
+    meta = p["dt"].strftime("%m-%d %H:%M")
+    if others:
+        meta += " · also " + "+".join(others)
+    return {"status": status, "tone": tone, "text": text[:160], "meta": meta}
+
+
+def write_shell(rel_dir, page_title):
+    """Drop a thin renderer shell so <site>/<rel_dir>/ is browsable. The ?v=dev
+    asset refs get stamped to the live version by sync-renderer on deploy."""
+    html = open(TEMPLATE).read().replace("PLACEHOLDER", page_title)
+    d = os.path.join(DIR, rel_dir)
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "index.html"), "w") as f:
+        f.write(html)
+
+
+ordered = sorted(per_board, key=lambda s: last_dt[s], reverse=True)
+
+# Umbrella overview: one console per board, capped, its title linking to that
+# board's full-history detail page.
 board_sections = []
-for slug in sorted(per_board, key=lambda s: last_dt[s], reverse=True):
+for slug in ordered:
     ps = per_board[slug]
-    board_lines = []
-    for p in ps[:PER_BOARD_MAX]:
-        text, status, tone = classify(p["subject"])
-        others = [b for b in p["boards"] if b != slug]
-        meta = p["dt"].strftime("%m-%d %H:%M")
-        if others:
-            meta += " · also " + "+".join(others)
-        board_lines.append({"status": status, "tone": tone,
-                            "text": text[:160], "meta": meta})
     board_sections.append({
         "kind": "console", "icon": icons.get(slug, DEFAULT_ICON),
-        "title": titles.get(slug, slug),
+        "title": titles.get(slug, slug), "href": f"/{slug}/history/",
         "desc": "updates that touched this board",
         "count": f"showing {min(PER_BOARD_MAX, len(ps))} of {len(ps)}",
-        "lines": board_lines,
+        "lines": [line_for(p, slug) for p in ps[:PER_BOARD_MAX]],
     })
+
+# Per-board detail pages at <slug>/history/ — the full log, its own activity
+# chart, and links back to the board and to the umbrella.
+for slug in ordered:
+    ps = per_board[slug]
+    title = titles.get(slug, slug)
+    bday = {}
+    for p in ps:
+        bday[p["dt"].date()] = bday.get(p["dt"].date(), 0) + 1
+    bseries = [{"label": d.strftime("%m-%d"), "value": bday.get(d, 0), "fill": "code"}
+               for d in days]
+    detail = {
+        "title": f"{title} — History",
+        "eyebrow": f"{icons.get(slug, DEFAULT_ICON)} status.jimmyhoughjr.net",
+        "stamp": f"Every status push that touched {title}, newest first — "
+                 f"{len(ps)} in all. A push's message covers the whole push, so "
+                 "lines note other boards it moved ('· also …').",
+        "links": [{"label": f"← {title}", "href": "../"},
+                  {"label": "All boards’ history", "href": "/history/"}],
+        "sections": [
+            {"kind": "stats", "items": [
+                {"n": str(len(ps)), "label": "Pushes", "tone": "go"},
+                {"n": ps[0]["dt"].strftime("%m-%d"), "label": "Latest", "tone": "done"},
+                {"n": ps[-1]["dt"].strftime("%m-%d"), "label": "First", "tone": "you"},
+            ]},
+            {"kind": "barchart", "icon": "📈", "title": "Activity",
+             "desc": f"pushes per day, last {CHART_DAYS} days", "series": bseries},
+            {"kind": "console", "icon": icons.get(slug, DEFAULT_ICON), "title": title,
+             "desc": "every push, newest first",
+             "count": f"{min(DETAIL_MAX, len(ps))} of {len(ps)}",
+             "lines": [line_for(p, slug) for p in ps[:DETAIL_MAX]]},
+        ],
+    }
+    os.makedirs(os.path.join(DIR, slug, "history"), exist_ok=True)
+    json.dump(detail, open(os.path.join(DIR, slug, "history/board.json"), "w"),
+              indent=2, ensure_ascii=False)
+    write_shell(os.path.join(slug, "history"), f"{title} — History")
 
 board = {
     "title": "History",
@@ -185,5 +243,5 @@ else:
                      "description": "Every status push, newest first — browse how each board evolved.",
                      "updated": today.isoformat()})
 json.dump(manifest, open(manifest_path, "w"), indent=2, ensure_ascii=False)
-print(f"history board: {len(board_sections)} per-board logs, "
+print(f"history: umbrella summary + {len(ordered)} per-board detail pages, "
       f"{len(pushes)} pushes total, {per_day.get(today, 0)} today")

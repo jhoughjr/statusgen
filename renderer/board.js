@@ -86,7 +86,11 @@
   function buildHeading(section) {
     const h2 = el("h2");
     if (section.icon) h2.append(el("span", { class: "sec-icon", "aria-hidden": "true" }, section.icon));
-    h2.append(document.createTextNode(section.title || ""));
+    // Optional section.href turns the title into a link (e.g. "see the full log").
+    const title = section.title || "";
+    h2.append(section.href
+      ? el("a", { class: "sec-link", href: section.href }, title)
+      : document.createTextNode(title));
     if (section.count) h2.append(el("span", { class: "count" }, section.count));
     if (section.desc) h2.append(el("span", { class: "desc" }, ` — ${section.desc}`));
     return h2;
@@ -379,7 +383,33 @@
     if (data.stamp) header.append(el("div", { class: "stamp mono" }, data.stamp));
     const gen = fmtGenerated(generatedAt);
     if (gen) header.append(el("div", { class: "stamp mono generated" }, `Generated ${gen}`));
+    // Header nav links (e.g. a history page's "← back", or a board's "History →"
+    // added by maybeAddHistoryLink). Always present so links can be appended.
+    const nav = el("nav", { class: "board-links mono" });
+    if (Array.isArray(data.links)) {
+      for (const l of data.links) {
+        if (l && l.href) nav.append(el("a", { href: l.href }, l.label || l.href));
+      }
+    }
+    header.append(nav);
     return header;
+  }
+
+  // If this board has its own history page (a sibling history/board.json) and
+  // isn't itself a history page, surface a "History →" link. Zero-config: the
+  // link appears wherever the history collector generated a detail page.
+  function maybeAddHistoryLink(container, data) {
+    if (location.pathname.includes("/history/")) return;
+    const declared = Array.isArray(data.links)
+      && data.links.some((l) => l && /(^|\/)history\/?$/.test(l.href || ""));
+    if (declared) return;
+    fetch("history/board.json", { cache: "no-cache" })
+      .then((r) => {
+        if (!r.ok) return;
+        const nav = container.querySelector("header.top .board-links");
+        if (nav) nav.append(el("a", { href: "history/" }, "History →"));
+      })
+      .catch(() => {});
   }
 
   function renderBoard(data, container, generatedAt) {
@@ -417,7 +447,10 @@
         const generatedAt = res.headers.get("Last-Modified");
         return res.json().then((data) => ({ data, generatedAt }));
       })
-      .then(({ data, generatedAt }) => renderBoard(data, container, generatedAt))
+      .then(({ data, generatedAt }) => {
+        renderBoard(data, container, generatedAt);
+        maybeAddHistoryLink(container, data);
+      })
       .catch((err) => showError(container, `Couldn't load ${src}: ${err.message}`));
   }
 

@@ -485,3 +485,47 @@
     init();
   }
 })();
+
+// Session chip — when the hosting site is gated behind a vault instance
+// (see docs in README), show who is signed in and offer sign-out.
+// Config: /_assets/site.json {"vault": "https://vault.example.com"}.
+// Absent config or signed-out → renders nothing. Never throws.
+(async () => {
+  try {
+    const cfg = await fetch("/_assets/site.json", { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (!cfg || !cfg.vault) return;
+    const me = await fetch(cfg.vault + "/api/me", { credentials: "include" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (!me) return;
+
+    // Build the chip container.
+    const chip = document.createElement("div");
+    chip.className = "sgen-session-chip";
+    chip.style.cssText = "position:fixed;right:12px;bottom:12px;z-index:1000;background:rgba(23,26,33,.92);border:1px solid #2e3542;border-radius:999px;padding:6px 12px 6px 6px;display:flex;align-items:center;gap:8px;font-size:12px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#e6e8eb;box-shadow:0 2px 8px rgba(0,0,0,.4);";
+
+    // Avatar image (if present).
+    if (me.avatar && typeof me.avatar === "string" && me.avatar.trim()) {
+      const img = document.createElement("img");
+      img.src = me.avatar;
+      img.referrerPolicy = "no-referrer";
+      img.style.cssText = "width:22px;height:22px;border-radius:50%;display:block;";
+      chip.appendChild(img);
+    }
+
+    // Email or ID text.
+    const emailSpan = document.createElement("span");
+    emailSpan.textContent = me.email || me.id || "";
+    emailSpan.style.cssText = "max-width:26ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+    chip.appendChild(emailSpan);
+
+    // Sign-out link.
+    const signoutLink = document.createElement("a");
+    signoutLink.href = cfg.vault + "/auth/logout?return=" + encodeURIComponent(location.href);
+    signoutLink.textContent = "sign out";
+    signoutLink.style.cssText = "color:#9aa3af;text-decoration:none;cursor:pointer;";
+    signoutLink.addEventListener("mouseover", () => { signoutLink.style.textDecoration = "underline"; });
+    signoutLink.addEventListener("mouseout", () => { signoutLink.style.textDecoration = "none"; });
+    chip.appendChild(signoutLink);
+
+    document.body.appendChild(chip);
+  } catch (_) { /* cosmetic feature — never break the board */ }
+})();

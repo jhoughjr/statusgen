@@ -143,6 +143,16 @@ are collected, story is written.**
 
 ---
 
+## Session chip (vault-gated sites)
+
+Sites deployed behind a vault authentication instance can commit
+`_assets/site.json` with `{"vault": "https://<vault-host>"}`. When
+present, the renderer displays a bottom-right chip with the signed-in
+user's avatar, email, and a sign-out link on every board page. Absent
+config renders nothing; `sync-renderer.sh` never touches `site.json`.
+
+---
+
 ## Scripts
 
 | Script | What it does |

@@ -1,0 +1,20 @@
+{
+  "Invoice ledger (is_reconciled)": ["is_reconciled", "applied_amount"],
+  "Invoice post / draft gating": ["posted_at"],
+  "PO staged states": ["partially_ordered"],
+  "Receive reversal (unreceived)": ["unreceived"],
+  "Manual PO line create": ["\"manual\""],
+  "Completion ledger reads": ["item_completions", "completionsById"],
+  "Fact vocabulary": ["vendor_return", "reverse_trade_in"],
+  "Role permission groups": ["invoicePermissions", "transferPermissions"],
+  "Observation socket wrapper": ["DocumentObservationStateDocument"],
+  "Line fees": ["fee_lines", "fee_create"],
+  "Override token": ["overrideToken"],
+  "Relations / links web": ["locked_to", "fk_order_request_ids"],
+  "Order requests": ["orderRequest", "from_requests"],
+  "Auto-post settings": ["autoPostConfig"],
+  "Quote expiry": ["is_expired", "quoteValidityConfig"],
+  "PO tracking": ["PurchaseOrderTracking"],
+  "Payment application legs": ["TransactionApply"],
+  "Bulk receive / un_order": ["un_order", "undo_receive"]
+}

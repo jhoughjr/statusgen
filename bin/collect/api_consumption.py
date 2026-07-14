@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """api_consumption.py — regenerate the board's "API consumption" → "Consumed" column
 from actual performWith() call sites in the Phoenix-Electron clone, so the list can't go stale.
+Also scans for contract adoption based on feature tokens.
 
 Counts performWith() invocations per API surface and creates one item per surface.
+Scans hand-written src for feature tokens to determine contract adoption status.
 
 Config (~/.roostrc):
   ROOST_STATS_REPO_DIR=~/repos/Phoenix-Electron     # path to Phoenix clone
@@ -96,6 +98,81 @@ def build_items(api_calls):
     return items
 
 
+def load_adoption_manifest():
+    """Load contract_adoption.json feature → tokens mapping."""
+    manifest_path = pathlib.Path(__file__).resolve().parent / "contract_adoption.json"
+    if not manifest_path.exists():
+        return {}
+    try:
+        return json.load(open(manifest_path))
+    except json.JSONDecodeError:
+        return {}
+
+
+def scan_src_for_tokens(repo_dir, tokens):
+    """Scan hand-written src/**/*.{ts,tsx} for any of the given tokens.
+    Returns True if any token is found, False otherwise."""
+    repo_path = pathlib.Path(repo_dir)
+    src_path = repo_path / "src"
+
+    if not src_path.exists():
+        return False
+
+    for ts_file in src_path.rglob("*.ts"):
+        # Skip generated files and test files
+        if "/generated" in str(ts_file) or ts_file.name.endswith((".test.ts", ".dom.test.ts")):
+            continue
+        try:
+            content = ts_file.read_text(encoding="utf-8", errors="ignore")
+            for token in tokens:
+                if token in content:
+                    return True
+        except Exception:
+            pass
+
+    for tsx_file in src_path.rglob("*.tsx"):
+        # Skip generated files and test files
+        if "/generated" in str(tsx_file) or tsx_file.name.endswith((".test.tsx", ".dom.test.tsx")):
+            continue
+        try:
+            content = tsx_file.read_text(encoding="utf-8", errors="ignore")
+            for token in tokens:
+                if token in content:
+                    return True
+        except Exception:
+            pass
+
+    return False
+
+
+def build_adoption_section(repo_dir, manifest):
+    """Build "Contract adoption" split section from manifest."""
+    if not manifest:
+        return None
+
+    adopted = []
+    pending = []
+
+    for feature, tokens in manifest.items():
+        if scan_src_for_tokens(repo_dir, tokens):
+            adopted.append({"text": feature})
+        else:
+            pending.append({"text": feature})
+
+    if not adopted and not pending:
+        return None
+
+    section = {
+        "kind": "split",
+        "title": "Contract adoption",
+        "columns": [
+            {"h3": "Adopted", "style": "check", "items": adopted},
+            {"h3": "Not yet adopted", "style": "pend", "items": pending},
+        ],
+    }
+    return section
+
+
 def main():
     cfg = lib.read_roostrc()
     repo_dir = cfg.get("ROOST_STATS_REPO_DIR", "")
@@ -115,6 +192,11 @@ def main():
         print(f"api-consumption: {board_path} not found — skipping")
         return 0
 
+    # Git pull (non-fatal) before scanning
+    result = lib.sh(["git", "pull", "--ff-only"], cwd=repo_dir)
+    if result.returncode != 0:
+        print(f"api-consumption: git pull failed (scanning stale): {result.stderr.strip()}")
+
     # Scan for API calls
     api_calls = scan_phoenix_for_api_calls(repo_dir)
     items = build_items(api_calls)
@@ -125,6 +207,7 @@ def main():
 
     # Load and update board
     board = lib.load_board(board_path)
+    api_consumed = False
     for s in board.get("sections", []):
         if s.get("title") != SECTION:
             continue
@@ -134,18 +217,31 @@ def main():
         for col in columns:
             if col.get("h3") == COLUMN:
                 col["items"] = items
-                lib.save_board(board_path, board)
+                api_consumed = True
                 api_names = ', '.join([c.get("text", "").split(" — ")[0] for c in items[:5]])
                 if len(items) > 5:
                     api_names += f", ... ({len(items)} total)"
-                print(f"api-consumption: {len(api_calls)} API surfaces, {len(items)} items: {api_names}")
-                return 0
+                print(f"api-consumption: {len(api_calls)} API surfaces: {api_names}")
+                break
 
-        # Column not found
-        print(f"api-consumption: no '{COLUMN}' column in '{SECTION}' section — nothing to patch")
-        return 0
+        if api_consumed:
+            break
 
-    print(f"api-consumption: no '{SECTION}' section on board — nothing to patch")
+    # Add contract adoption section
+    manifest = load_adoption_manifest()
+    adoption_section = build_adoption_section(repo_dir, manifest)
+    if adoption_section:
+        lib.upsert_section(board, "Contract adoption", adoption_section, after_kind="split")
+        adopted_count = len(adoption_section["columns"][0]["items"])
+        pending_count = len(adoption_section["columns"][1]["items"])
+        print(f"api-consumption: contract adoption {adopted_count} adopted, {pending_count} pending")
+
+    # Save board
+    lib.save_board(board_path, board)
+
+    if not api_consumed:
+        print(f"api-consumption: no '{COLUMN}' column in '{SECTION}' section — adoption section only")
+
     return 0
 
 

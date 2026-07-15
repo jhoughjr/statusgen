@@ -14,6 +14,11 @@ icons are read from the site's status.json manifest; a board with no `icon`
 falls back to a neutral default. Output: <site>/history/board.json, and the
 manifest's `history` entry is stamped today.
 
+A board's detail page also carries a NARRATIVE section: the full text of every
+revision of the board's `banner` item (the hand-written dated prose), read out
+of the git blob at each push. Commit messages say when a banner changed; this
+is the only place that shows what it said.
+
 Site location resolves from STATUS_SITE_DIR, else ROOST_STATUS_SITE in
 ~/.roostrc. Run standalone or via `roost status`; safe any time.
 """
@@ -134,6 +139,31 @@ for p in pushes:
         per_board.setdefault(slug, []).append(p)
         last_dt.setdefault(slug, p["dt"])
 
+def narrative_for(slug, ps):
+    """Every distinct revision of a board's banner text, newest first.
+
+    Reads the board.json blob at each push already in the board's log (ps,
+    newest first) and keeps the pushes where the banner prose changed. The
+    log excludes scheduled refreshes, which is fine: collectors preserve the
+    banner verbatim, so a revision can only enter at an authored or by-hand
+    push. Boards with no banner yield []."""
+    entries, prev = [], None
+    for p in reversed(ps[:DETAIL_MAX]):          # walk oldest -> newest
+        try:
+            data = json.loads(git("show", f"{p['sha']}:{slug}/board.json"))
+        except ValueError:
+            continue                             # file absent or unparsable then
+        texts = [s["text"].strip() for s in data.get("sections", [])
+                 if isinstance(s, dict) and s.get("kind") == "banner"
+                 and s.get("text", "").strip()]
+        cur = "\n\n".join(texts)
+        if cur and cur != prev:
+            entries.append({"dt": p["dt"], "text": cur})
+        prev = cur
+    entries.reverse()
+    return entries
+
+
 def line_for(p, slug):
     text, status, tone = classify(p["subject"])
     others = [b for b in p["boards"] if b != slug]
@@ -205,6 +235,21 @@ for slug in ordered:
              "lines": [line_for(p, slug) for p in ps[:DETAIL_MAX]]},
         ],
     }
+    narrative = narrative_for(slug, ps)
+    if narrative:
+        detail["sections"].insert(2, {
+            "kind": "cards", "icon": "📜", "title": "Narrative",
+            "count": f"{len(narrative)} revisions",
+            "desc": "the board's banner over time — full text of each revision, newest first",
+            "items": [
+                # headline = leading slice of the prose; full text in the note
+                {"id": e["dt"].strftime("%Y-%m-%d"),
+                 "q": e["text"] if len(e["text"]) <= 96
+                      else e["text"][:96].rstrip() + "…",
+                 **({"note": e["text"]} if len(e["text"]) > 96 else {})}
+                for e in narrative
+            ],
+        })
     os.makedirs(os.path.join(DIR, slug, "history"), exist_ok=True)
     json.dump(detail, open(os.path.join(DIR, slug, "history/board.json"), "w"),
               indent=2, ensure_ascii=False)

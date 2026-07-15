@@ -24,6 +24,31 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import lib
 
 
+def build_lines(files, vault_base):
+    """Map manifest entries to console lines, newest first.
+
+    `mtime` is a UTC ISO-8601 instant from the runner's manifest. Per
+    BOARD_SCHEMA it goes out as `ts` so the renderer localizes it to each
+    viewer's clock; only the size goes in `meta`. (Slicing it into a bare
+    "2026-07-13 21:42" string here showed the runner's UTC to everyone.)
+    """
+    lines = []
+    for i, f in enumerate(files[:5]):
+        mb = f.get("size", 0) / 1048576
+        line = {
+            "status": "signed",
+            "tone": "go" if i == 0 else "none",
+            "text": f["name"],
+            "meta": f"· {mb:.0f} MB",
+            "href": vault_base + "/" + urllib.parse.quote(f["name"]),
+        }
+        mtime = f.get("mtime") or ""
+        if mtime:
+            line["ts"] = mtime
+        lines.append(line)
+    return lines
+
+
 def main():
     cfg = lib.read_roostrc()
     board_dir = cfg.get("ROOST_BUILDS_BOARD", "")
@@ -44,17 +69,7 @@ def main():
         print("builds: manifest empty — leaving board as-is")
         return 0
 
-    lines = []
-    for i, f in enumerate(files[:5]):
-        mb = f.get("size", 0) / 1048576
-        when = (f.get("mtime") or "")[:16].replace("T", " ")
-        lines.append({
-            "status": "signed",
-            "tone": "go" if i == 0 else "none",
-            "text": f["name"],
-            "meta": f"· {mb:.0f} MB · {when}",
-            "href": vault_base + "/" + urllib.parse.quote(f["name"]),
-        })
+    lines = build_lines(files, vault_base)
 
     section = {
         "kind": "console", "icon": "📦", "title": "Builds",

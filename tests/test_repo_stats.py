@@ -77,5 +77,48 @@ class PatchCoverageChartTest(unittest.TestCase):
         self.assertEqual(board, before)
 
 
+TBT = {"unit": 5830, "integration": 132, "e2e": None,
+       "unit_files": 315, "integration_files": 8}
+
+
+class TestTypeSectionsTest(unittest.TestCase):
+    def test_stat_tiles_and_donut_built(self):
+        stats, pie = repo_stats.build_test_type_sections(TBT)
+        self.assertEqual(stats["kind"], "stats")
+        self.assertEqual(stats["title"], "Tests by type")
+        tiles = {t["label"]: t["n"] for t in stats["items"]}
+        self.assertEqual(tiles, {"Unit": "5,830", "Integration": "132", "E2E": "n/a"})
+        self.assertEqual(pie["kind"], "pie")
+        self.assertEqual(pie["title"], "Test mix")
+        self.assertEqual([s["value"] for s in pie["slices"]], [5830, 132])
+        self.assertIn("315 files", pie["note"])
+        self.assertIn("not yet run in CI", pie["note"])
+
+    def test_e2e_number_when_present(self):
+        stats, pie = repo_stats.build_test_type_sections({**TBT, "e2e": 11})
+        e2e = next(t for t in stats["items"] if t["label"] == "E2E")
+        self.assertEqual(e2e["n"], "11")
+        self.assertEqual(e2e["tone"], "go")
+
+    def test_patch_upserts_both_sections(self):
+        board = {"sections": [{"kind": "compare", "columns": [{"items": []}]}]}
+        self.assertTrue(repo_stats.patch_test_types(board, TBT))
+        titles = [s.get("title") for s in board["sections"]]
+        self.assertIn("Tests by type", titles)
+        self.assertIn("Test mix", titles)
+        # Idempotent: a second run replaces rather than duplicates.
+        repo_stats.patch_test_types(board, {**TBT, "unit": 6000})
+        self.assertEqual(titles.count("Tests by type"),
+                         [s.get("title") for s in board["sections"]].count("Tests by type"))
+        stats = next(s for s in board["sections"] if s.get("title") == "Tests by type")
+        self.assertEqual(stats["items"][0]["n"], "6,000")
+
+    def test_old_report_without_breakdown_is_noop(self):
+        board = {"sections": [{"kind": "compare", "columns": [{"items": []}]}]}
+        before = copy.deepcopy(board)
+        self.assertFalse(repo_stats.patch_test_types(board, {}))
+        self.assertEqual(board, before)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -89,6 +89,12 @@ h2 .sec-link:hover { color: var(--accent); text-decoration: underline; }
 .console-cmd.copied { color: var(--go); border-color: var(--go); }
 .console-cmd.copied::after { content: " ✓"; }
 .console-meta { margin-left: auto; padding-left: 1.2rem; color: #6e7681; }
+/* Stale — numbers the collector couldn't refresh (red CI streak). Dim the tile
+   and flag it amber so a frozen figure doesn't read as current. */
+.stat.stale { border-color: var(--wip); border-style: dashed; opacity: 0.72; }
+.stat.stale .n { color: var(--ink-soft); }
+.stat .stale-flag { color: var(--wip); font-size: 0.9rem; font-weight: 600; }
+
 .stat.go .n { color: var(--go); } .stat.you .n { color: var(--you); }
 .stat.srv .n { color: var(--srv); } .stat.wip .n { color: var(--wip); } .stat.done .n { color: var(--done); }
 

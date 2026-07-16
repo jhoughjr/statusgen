@@ -346,8 +346,15 @@
       const tiles = el("div", { class: "stats" });
       for (const item of c.items || []) {
         const tone = item.tone ? ` ${item.tone}` : "";
-        const stat = el("div", { class: `stat${tone}` });
-        stat.append(el("div", { class: "n" }, item.ts ? fmtTime(item.ts) : (item.n ?? "")));
+        // A stale tile shows numbers the collector couldn't refresh (a red CI
+        // streak leaves them behind HEAD). Mark it so a frozen figure reads as
+        // frozen, not current.
+        const stale = item.stale ? " stale" : "";
+        const stat = el("div", { class: `stat${tone}${stale}`,
+          ...(item.stale ? { title: "Stale — CI hasn't reported a fresh green build; number is behind HEAD" } : {}) });
+        const n = el("div", { class: "n" }, item.ts ? fmtTime(item.ts) : (item.n ?? ""));
+        if (item.stale) n.append(el("span", { class: "stale-flag", "aria-label": "stale" }, " ⚠"));
+        stat.append(n);
         stat.append(el("div", { class: "l" }, item.label ?? ""));
         tiles.append(stat);
       }

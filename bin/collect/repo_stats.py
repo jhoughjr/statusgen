@@ -95,6 +95,17 @@ def ci_report(slug, branch):
     return None, None
 
 
+def head_sha(slug, branch):
+    """Current HEAD sha (7-char) of `branch`, or None. Best-effort — a failure
+    just means we can't judge staleness, never that the board is touched."""
+    out = subprocess.run(
+        ["gh", "api", f"repos/{slug}/commits/{branch}", "--jq", ".sha"],
+        capture_output=True, text=True, timeout=30)
+    if out.returncode != 0 or not out.stdout.strip():
+        return None
+    return out.stdout.strip()[:7]
+
+
 def patch_coverage_chart(board, covd, count):
     """Patch a "Test Coverage" barchart from the report's `coverage` object:
     metric bars matched by label, note rebuilt with the zero-coverage file
@@ -182,13 +193,32 @@ def main():
             extra = (f" · {branch2}@{str(r2.get('sha',''))[:7]} "
                      f"{int(r2['tests_passed']):,}")
 
+    # Staleness — the numbers come from the newest GREEN run's report, so a red
+    # streak (or a build not yet reported) leaves them behind the branch's real
+    # HEAD while the stamp still reads "CI dev@<sha>", looking current. Say so
+    # plainly: mark the tiles and stamp when the report trails HEAD, so a frozen
+    # board is obviously frozen rather than mistaken for up to date.
+    head = head_sha(slug, branch)
+    stale = bool(head and sha and head != sha)
+    stale_note = ""
+    if stale:
+        stale_note = f" · ⚠ STALE — {branch} is at {head}, numbers as of {sha}"
+        for s in board.get("sections", []):
+            if s.get("kind") != "compare":
+                continue
+            for tile in s["columns"][0]["items"]:
+                if str(tile.get("label", "")).startswith(("Tests green", "Coverage")):
+                    tile["stale"] = True
+
     ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
     name = cfg.get("ROOST_STATS_LABEL") or slug.split("/")[-1]
     board["stamp"] = (f"Updated {ts} — {name} {count:,} tests green · {cov}% coverage "
-                      f"· CI {branch}@{sha}{extra} · +{delta:,} added (7d)")
+                      f"· CI {branch}@{sha}{extra} · +{delta:,} added (7d){stale_note}")
 
     lib.save_board(board_path, board)
-    print(f"repo-stats: tests={count} coverage={cov}% chart={'patched' if chart else 'n/a'} (CI {branch}@{sha}, run {run_id}, Δ+{delta} vs 7d-ago {base}){extra and ' |' + extra}")
+    print(f"repo-stats: tests={count} coverage={cov}% chart={'patched' if chart else 'n/a'} "
+          f"(CI {branch}@{sha}, run {run_id}, Δ+{delta} vs 7d-ago {base}){extra and ' |' + extra}"
+          f"{' STALE vs HEAD ' + head if stale else ''}")
     return 0
 
 

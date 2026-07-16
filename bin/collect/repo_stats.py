@@ -24,6 +24,12 @@ also patches a "Test Coverage" barchart section: the four metric bars
 zero-coverage file count and top worst-offenders by uncovered lines. Old
 reports without the object leave the chart untouched.
 
+When the report carries a `tests_by_type` object (unit/integration counts, e2e
+null until Playwright joins CI), also self-seeds two sections — a "Tests by
+type" stat-tile row and a "Test mix" donut — upserted so a board that never had
+them gets them without a hand-edit. Old reports without the object leave any
+existing sections with their last-good numbers.
+
 Config (~/.roostrc):
   ROOST_STATS_BOARD=clauffice                          # board dir under the status site
   ROOST_STATS_GH_REPO=Austin-MacWorks/Phoenix-Electron # repo slug for gh
@@ -106,6 +112,68 @@ def head_sha(slug, branch):
     return out.stdout.strip()[:7]
 
 
+def build_test_type_sections(tbt):
+    """From the report's `tests_by_type` object, build the "Tests by type" stat
+    tiles and the "Test mix" donut. Unit and integration both run under vitest,
+    so both carry real numbers; e2e is Playwright and not run in CI yet, so its
+    tile reads "n/a" (a reported 0 would look like a passing e2e suite) and it
+    gets no pie slice. Returns (stats_section, pie_section)."""
+    unit = int(tbt.get("unit") or 0)
+    integ = int(tbt.get("integration") or 0)
+    e2e = tbt.get("e2e")
+    uf, ifi = tbt.get("unit_files"), tbt.get("integration_files")
+
+    tiles = [
+        {"n": f"{unit:,}", "label": "Unit", "tone": "go"},
+        {"n": f"{integ:,}", "label": "Integration", "tone": "you"},
+        {"n": "n/a" if e2e is None else f"{int(e2e):,}",
+         "label": "E2E", "tone": "wip" if e2e is None else "go"},
+    ]
+    stats_section = {
+        "kind": "stats", "icon": "🧪", "title": "Tests by type",
+        "desc": "passing vitest tests by suite · e2e (Playwright) pending CI",
+        "count": f"{unit + integ:,} green",
+        "items": tiles,
+    }
+
+    note_bits = []
+    if uf is not None:
+        note_bits.append(f"{unit:,} unit across {uf} files")
+    else:
+        note_bits.append(f"{unit:,} unit")
+    if ifi is not None:
+        note_bits.append(f"{integ:,} integration across {ifi} files")
+    else:
+        note_bits.append(f"{integ:,} integration")
+    note = ("Passing tests by suite: " + ", ".join(note_bits) +
+            ". E2E (Playwright) not yet run in CI.")
+    pie_section = {
+        "kind": "pie", "icon": "🧪", "title": "Test mix",
+        "slices": [
+            {"label": "Unit", "value": unit, "tone": "go"},
+            {"label": "Integration", "value": integ, "tone": "you"},
+        ],
+        "note": note,
+    }
+    return stats_section, pie_section
+
+
+def patch_test_types(board, tbt):
+    """Seed/refresh the "Tests by type" tiles and "Test mix" donut from the
+    report's `tests_by_type` object. Upserts (self-seeds on first run), so a
+    board that has never carried them gets them without a hand-edit. A no-op
+    that returns False for old reports without the breakdown — the sections,
+    if already present, keep their last-good numbers. Returns True when patched."""
+    if not tbt or ("unit" not in tbt and "integration" not in tbt):
+        return False
+    stats_sec, pie_sec = build_test_type_sections(tbt)
+    # upsert inserts each right after the compare section, so the LAST upsert
+    # lands first — do the donut first, tiles second, to read tiles → donut.
+    lib.upsert_section(board, "Test mix", pie_sec, after_kind="compare")
+    lib.upsert_section(board, "Tests by type", stats_sec, after_kind="compare")
+    return True
+
+
 def patch_coverage_chart(board, covd, count):
     """Patch a "Test Coverage" barchart from the report's `coverage` object:
     metric bars matched by label, note rebuilt with the zero-coverage file
@@ -179,8 +247,11 @@ def main():
     covd = report.get("coverage") or {}
     chart = patch_coverage_chart(board, covd, count) if covd else False
 
-    if not (patched or chart):
-        print("repo-stats: no compare or Test Coverage section found — nothing to patch")
+    tbt = report.get("tests_by_type") or {}
+    types = patch_test_types(board, tbt)
+
+    if not (patched or chart or types):
+        print("repo-stats: no compare, Test Coverage, or tests_by_type to patch — nothing to do")
         return 0
 
     # Optional second branch (e.g. main while the headline tracks dev):
@@ -217,6 +288,7 @@ def main():
 
     lib.save_board(board_path, board)
     print(f"repo-stats: tests={count} coverage={cov}% chart={'patched' if chart else 'n/a'} "
+          f"types={'patched' if types else 'n/a'} "
           f"(CI {branch}@{sha}, run {run_id}, Δ+{delta} vs 7d-ago {base}){extra and ' |' + extra}"
           f"{' STALE vs HEAD ' + head if stale else ''}")
     return 0

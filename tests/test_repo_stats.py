@@ -120,5 +120,24 @@ class TestTypeSectionsTest(unittest.TestCase):
         self.assertEqual(board, before)
 
 
+class ReportAgeHoursTest(unittest.TestCase):
+    def test_missing_or_unparseable_is_none(self):
+        self.assertIsNone(repo_stats.report_age_hours({}))
+        self.assertIsNone(repo_stats.report_age_hours({"generated_at": ""}))
+        self.assertIsNone(repo_stats.report_age_hours({"generated_at": "not-a-date"}))
+
+    def test_old_report_reads_many_hours(self):
+        age = repo_stats.report_age_hours({"generated_at": "2020-01-01T00:00:00Z"})
+        self.assertIsNotNone(age)
+        self.assertGreater(age, 4)  # decades old, well past the stale threshold
+
+    def test_fresh_report_reads_near_zero(self):
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        age = repo_stats.report_age_hours({"generated_at": now})
+        self.assertIsNotNone(age)
+        self.assertLess(age, 1)  # minutes-old report is not stale
+
+
 if __name__ == "__main__":
     unittest.main()

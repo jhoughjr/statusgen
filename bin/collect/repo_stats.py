@@ -44,7 +44,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import lib
@@ -99,6 +99,23 @@ def ci_report(slug, branch):
             return report, rid
         # older run without the report — try the next
     return None, None
+
+
+def report_age_hours(report):
+    """Hours since the report's `generated_at`, or None if absent/unparseable.
+    Staleness uses this so a report that merely trails a fast-moving branch by a
+    commit or two (normal CI lag on every push) isn't cried as stale — only a
+    genuinely OLD newest-green report (a red streak, stalled reporting) is."""
+    raw = str(report.get("generated_at", "")).strip()
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - dt).total_seconds() / 3600
 
 
 def head_sha(slug, branch):
@@ -276,10 +293,21 @@ def main():
     # plainly: mark the tiles and stamp when the report trails HEAD, so a frozen
     # board is obviously frozen rather than mistaken for up to date.
     head = head_sha(slug, branch)
-    stale = bool(head and sha and head != sha)
+    behind = bool(head and sha and head != sha)
+    # Only cry stale when the newest green report is genuinely OLD — a busy
+    # branch sits a commit or two ahead of the last green run constantly, and
+    # that lag isn't staleness. Default 4h; tune via ROOST_STATS_STALE_HOURS.
+    # If the report has no readable timestamp, fall back to behind-HEAD.
+    try:
+        stale_hours = float(cfg.get("ROOST_STATS_STALE_HOURS", "4") or 4)
+    except ValueError:
+        stale_hours = 4.0
+    age_h = report_age_hours(report)
+    stale = behind and (age_h is None or age_h > stale_hours)
     stale_note = ""
     if stale:
-        stale_note = f" · ⚠ STALE — {branch} is at {head}, numbers as of {sha}"
+        aged = f", {age_h:.0f}h old" if age_h is not None else ""
+        stale_note = f" · ⚠ STALE — {branch} is at {head}, numbers as of {sha}{aged}"
         for s in board.get("sections", []):
             if s.get("kind") != "compare":
                 continue

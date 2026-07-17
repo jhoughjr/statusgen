@@ -5,7 +5,7 @@ Usage: validate-board.py <board.json> [...]   Exits 1 on any invalid board.
 import json, sys
 
 KINDS = {"stats", "banner", "barchart", "pie", "table", "cards", "split",
-         "compare", "console"}
+         "compare", "console", "live-console"}
 fail = 0
 for path in sys.argv[1:]:
     try:
@@ -40,6 +40,12 @@ for path in sys.argv[1:]:
                 assert isinstance(s.get("lines"), list), f"section {i}: console needs lines"
                 for ln in s["lines"]:
                     assert "text" in ln, f"section {i}: console lines need text"
+            if k == "live-console":
+                # Rows arrive at runtime from poll.url, so no `lines` here — just
+                # a reachable endpoint the renderer can fetch.
+                p = s.get("poll")
+                assert isinstance(p, dict) and isinstance(p.get("url"), str) and p["url"], \
+                    f"section {i}: live-console needs poll.url"
         print(f"✓ {path}")
     except (AssertionError, json.JSONDecodeError, OSError) as e:
         print(f"✗ {path}: {e}")

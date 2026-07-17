@@ -203,5 +203,92 @@ class ReportAgeHoursTest(unittest.TestCase):
         self.assertLess(age, 1)  # minutes-old report is not stale
 
 
+class LocalReportTest(unittest.TestCase):
+    """The runner-local state-file source — what survives GitHub
+    artifact-quota blackouts when CI and the board writer share a machine."""
+
+    def _write(self, d, name, payload):
+        p = os.path.join(d, name)
+        with open(p, "w") as f:
+            f.write(payload)
+        return p
+
+    def test_reads_branch_keyed_file(self):
+        import json, tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "dev-test-report.json",
+                        json.dumps({"branch": "dev", "tests_passed": 5}))
+            r = repo_stats.local_report(d, "dev")
+            self.assertEqual(r["tests_passed"], 5)
+
+    def test_slashed_branch_is_flattened(self):
+        import json, tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self._write(d, "112-merge-test-report.json",
+                        json.dumps({"branch": "112/merge", "tests_passed": 3}))
+            self.assertIsNotNone(repo_stats.local_report(d, "112/merge"))
+
+    def test_wrong_branch_missing_garbage_or_unset_dir(self):
+        import json, tempfile
+        self.assertIsNone(repo_stats.local_report("", "dev"))
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(repo_stats.local_report(d, "dev"))  # missing
+            self._write(d, "dev-test-report.json", "{not json")
+            self.assertIsNone(repo_stats.local_report(d, "dev"))  # garbage
+            self._write(d, "dev-test-report.json",
+                        json.dumps({"branch": "main", "tests_passed": 5}))
+            self.assertIsNone(repo_stats.local_report(d, "dev"))  # mis-keyed
+
+
+class PreferReportTest(unittest.TestCase):
+    def test_local_wins_when_gh_absent_or_older(self):
+        local = {"generated_at": "2026-01-02T00:00:00Z"}
+        gh = {"generated_at": "2026-01-01T00:00:00Z"}
+        self.assertEqual(repo_stats.prefer_report(None, local), (local, True))
+        self.assertEqual(repo_stats.prefer_report(gh, local), (local, True))
+        # tie goes local — the same run wrote both
+        self.assertEqual(repo_stats.prefer_report(local, local), (local, True))
+
+    def test_gh_wins_when_fresher_or_local_absent(self):
+        local = {"generated_at": "2026-01-01T00:00:00Z"}
+        gh = {"generated_at": "2026-01-02T00:00:00Z"}
+        self.assertEqual(repo_stats.prefer_report(gh, local), (gh, False))
+        self.assertEqual(repo_stats.prefer_report(gh, None), (gh, False))
+        # local without a readable timestamp never outranks a dated gh report
+        self.assertEqual(repo_stats.prefer_report(gh, {}), (gh, False))
+
+
+class E2ECarryForwardTest(unittest.TestCase):
+    """A null e2e means "not measured by this run" — the tile must keep its
+    last-good number, not reset to n/a."""
+
+    def _board_with_e2e(self, n):
+        board = {"sections": [{"kind": "compare", "columns": [{"items": []}]}]}
+        repo_stats.patch_test_types(board, {**TBT, "e2e": n})
+        return board
+
+    def test_null_e2e_keeps_last_good_number(self):
+        board = self._board_with_e2e(11)
+        repo_stats.patch_test_types(board, {**TBT, "unit": 6000, "e2e": None})
+        stats = next(s for s in board["sections"] if s.get("title") == "Tests by type")
+        tiles = {t["label"]: t["n"] for t in stats["items"]}
+        self.assertEqual(tiles["E2E"], "11")
+        self.assertEqual(tiles["Unit"], "6,000")
+
+    def test_null_e2e_on_na_board_stays_na(self):
+        board = self._board_with_e2e(None)
+        repo_stats.patch_test_types(board, {**TBT, "e2e": None})
+        stats = next(s for s in board["sections"] if s.get("title") == "Tests by type")
+        e2e = next(t for t in stats["items"] if t["label"] == "E2E")
+        self.assertEqual(e2e["n"], "n/a")
+
+    def test_real_number_still_overrides(self):
+        board = self._board_with_e2e(11)
+        repo_stats.patch_test_types(board, {**TBT, "e2e": 12})
+        stats = next(s for s in board["sections"] if s.get("title") == "Tests by type")
+        e2e = next(t for t in stats["items"] if t["label"] == "E2E")
+        self.assertEqual(e2e["n"], "12")
+
+
 if __name__ == "__main__":
     unittest.main()

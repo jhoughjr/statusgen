@@ -41,6 +41,14 @@ Config (~/.roostrc):
   ROOST_STATS_GH_REPO=Austin-MacWorks/Phoenix-Electron # repo slug for gh
   ROOST_STATS_CI_BRANCH=main                           # branch whose CI to trust (default main)
   ROOST_STATS_LABEL=Phoenix                            # optional stamp label
+  ROOST_STATS_STATE_DIR=$HOME/.ci-state/phoenix        # optional runner-local report dir
+
+When ROOST_STATS_STATE_DIR is set and the board writer shares a machine with a
+CI runner, the collector also reads `<branch>-test-report.json` from that dir —
+the copy CI's emit/merge steps drop locally on every run. Whichever source is
+fresher (by `generated_at`) wins; the local copy is what survives GitHub
+artifact-quota blackouts, which silently eat the artifact upload and would
+otherwise drop the collector back to the pre-e2e log-line fallback.
 
 Non-fatal by contract: no config → skip; any failure → board untouched (last
 good numbers stay, with their original stamp date showing the staleness), exit 0.
@@ -107,6 +115,41 @@ def ci_report(slug, branch):
     return None, None
 
 
+def local_report(state_dir, branch):
+    """test-report.json from the runner-local state dir — the copy CI's
+    emit/merge steps drop on this machine (`<branch>-test-report.json`,
+    slashes flattened, same naming as the scripts). Returns dict or None;
+    never raises. Trusted only for its own branch: a mis-keyed or hand-copied
+    file must not feed another branch's tiles."""
+    if not state_dir:
+        return None
+    path = pathlib.Path(state_dir) / (branch.replace("/", "-") + "-test-report.json")
+    try:
+        report = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if "tests_passed" not in report:
+        return None
+    if str(report.get("branch") or branch) != branch:
+        return None
+    return report
+
+
+def prefer_report(gh_report, local):
+    """Pick between the gh-fetched report and the runner-local one: freshest
+    `generated_at` wins (ties go local — same runs write both, and local can't
+    be quota-eaten; a second runner elsewhere can still make gh newer).
+    Returns (report, used_local)."""
+    if local is None:
+        return gh_report, False
+    if gh_report is None:
+        return local, True
+    l_age, g_age = report_age_hours(local), report_age_hours(gh_report)
+    if l_age is not None and (g_age is None or l_age <= g_age):
+        return local, True
+    return gh_report, False
+
+
 def report_age_hours(report):
     """Hours since the report's `generated_at`, or None if absent/unparseable.
     Staleness uses this so a report that merely trails a fast-moving branch by a
@@ -138,9 +181,10 @@ def head_sha(slug, branch):
 def build_test_type_sections(tbt):
     """From the report's `tests_by_type` object, build the "Tests by type" stat
     tiles and the "Test mix" donut. Unit and integration both run under vitest,
-    so both carry real numbers; e2e is Playwright and not run in CI yet, so its
-    tile reads "n/a" (a reported 0 would look like a passing e2e suite) and it
-    gets no pie slice. Returns (stats_section, pie_section)."""
+    so both carry real numbers; e2e is Playwright, runs on dev pushes only, and
+    is null in reports from runs that never measured it — a null tile reads
+    "n/a" (a reported 0 would look like a passing e2e suite) and gets no pie
+    slice. Returns (stats_section, pie_section)."""
     unit = int(tbt.get("unit") or 0)
     integ = int(tbt.get("integration") or 0)
     e2e = tbt.get("e2e")
@@ -154,7 +198,9 @@ def build_test_type_sections(tbt):
     ]
     stats_section = {
         "kind": "stats", "icon": "🧪", "title": "Tests by type",
-        "desc": "passing vitest tests by suite · e2e (Playwright) pending CI",
+        "desc": ("passing vitest tests by suite · e2e (Playwright) pending CI"
+                 if e2e is None else
+                 "passing tests by suite · e2e = Playwright on dev CI"),
         "count": f"{unit + integ:,} green",
         "items": tiles,
     }
@@ -168,17 +214,34 @@ def build_test_type_sections(tbt):
         note_bits.append(f"{integ:,} integration across {ifi} files")
     else:
         note_bits.append(f"{integ:,} integration")
-    note = ("Passing tests by suite: " + ", ".join(note_bits) +
-            ". E2E (Playwright) not yet run in CI.")
+    e2e_note = (" E2E (Playwright) not yet run in CI." if e2e is None
+                else f" E2E: {int(e2e):,} passing (Playwright, dev CI).")
+    note = "Passing tests by suite: " + ", ".join(note_bits) + "." + e2e_note
+    slices = [
+        {"label": "Unit", "value": unit, "tone": "go"},
+        {"label": "Integration", "value": integ, "tone": "you"},
+    ]
+    if e2e is not None:
+        slices.append({"label": "E2E", "value": int(e2e), "tone": "wip"})
     pie_section = {
         "kind": "pie", "icon": "🧪", "title": "Test mix",
-        "slices": [
-            {"label": "Unit", "value": unit, "tone": "go"},
-            {"label": "Integration", "value": integ, "tone": "you"},
-        ],
+        "slices": slices,
         "note": note,
     }
     return stats_section, pie_section
+
+
+def last_good_e2e(board):
+    """The numeric value of the board's current E2E tile in "Tests by type",
+    or None when absent / still "n/a". Feeds the null-e2e carry-forward."""
+    for s in board.get("sections", []):
+        if s.get("kind") != "stats" or s.get("title") != "Tests by type":
+            continue
+        for tile in s.get("items", []):
+            if tile.get("label") == "E2E":
+                raw = str(tile.get("n", "")).replace(",", "")
+                return int(raw) if raw.isdigit() else None
+    return None
 
 
 def patch_test_types(board, tbt):
@@ -186,9 +249,16 @@ def patch_test_types(board, tbt):
     report's `tests_by_type` object. Upserts (self-seeds on first run), so a
     board that has never carried them gets them without a hand-edit. A no-op
     that returns False for old reports without the breakdown — the sections,
-    if already present, keep their last-good numbers. Returns True when patched."""
+    if already present, keep their last-good numbers. A report whose e2e is
+    null means "not measured by this run" (PR/main runs, or a dev run that died
+    before Playwright) — carry the board's last-good E2E number forward instead
+    of resetting the tile to n/a. Returns True when patched."""
     if not tbt or ("unit" not in tbt and "integration" not in tbt):
         return False
+    if tbt.get("e2e") is None:
+        carry = last_good_e2e(board)
+        if carry is not None:
+            tbt = {**tbt, "e2e": carry}
     stats_sec, pie_sec = build_test_type_sections(tbt)
     # upsert inserts each right after the compare section, so the LAST upsert
     # lands first — do the donut first, tiles second, to read tiles → donut.
@@ -301,6 +371,11 @@ def main():
         return 0
 
     report, run_id = ci_report(slug, branch)
+    report, used_local = prefer_report(
+        report, local_report(cfg.get("ROOST_STATS_STATE_DIR", ""), branch))
+    if used_local:
+        run_id = "local-state"
+        print(f"repo-stats: runner-local state report is freshest for {branch} — using it")
     if report is None:
         print(f"repo-stats: no {ARTIFACT} artifact on recent green {branch} runs — leaving tiles as-is")
         return 0

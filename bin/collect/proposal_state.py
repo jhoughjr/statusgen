@@ -229,6 +229,10 @@ def main():
     # Upsert onto board (after "API consumption")
     board = lib.load_board(board_path)
     lib.upsert_section(board, 'Proposals', section, after_kind='split')
+    # Wire the once-hardcoded "Resolved" tile to the count of proposals that
+    # have landed or been parked/closed (merged/landed = go, parked/closed = done).
+    resolved = sum(1 for p in proposals if p['tone'] in ('go', 'done'))
+    lib.set_compare_tile(board, 'Resolved', str(resolved))
     lib.save_board(board_path, board)
 
     statuses = ', '.join(sorted(set(p['status'] for p in proposals))[:3])

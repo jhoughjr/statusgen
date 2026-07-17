@@ -244,6 +244,12 @@ def main():
                 tile["n"] = f"{cov}%"
         patched = True
 
+    # Wire the once-hardcoded "Tests · N files" tile to the real test-file
+    # count from the CI report (it used to read a stale "346 · 94 files").
+    tf = report.get("test_files")
+    if tf is not None:
+        lib.set_compare_tile(board, "Tests ·", f"{int(tf):,}", label="Test files")
+
     covd = report.get("coverage") or {}
     chart = patch_coverage_chart(board, covd, count) if covd else False
 

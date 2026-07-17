@@ -234,6 +234,9 @@ def main():
         lib.upsert_section(board, "Contract adoption", adoption_section, after_kind="split")
         adopted_count = len(adoption_section["columns"][0]["items"])
         pending_count = len(adoption_section["columns"][1]["items"])
+        # Wire the once-hardcoded "Blocked on server" tile to the real count of
+        # contract features not yet adopted (i.e. waiting on MWServer).
+        lib.set_compare_tile(board, "Blocked on server", str(pending_count))
         print(f"api-consumption: contract adoption {adopted_count} adopted, {pending_count} pending")
 
     # Save board

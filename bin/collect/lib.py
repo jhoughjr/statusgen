@@ -101,6 +101,27 @@ def find_stat(board, label_prefix, column=0):
     return None
 
 
+def set_compare_tile(board, match, n, label=None, tone=None):
+    """Set the value (and optionally label/tone) of the compare tile whose
+    current label starts with `match`, searching every column. Returns True
+    when a tile was found and updated — collectors use this to wire a
+    previously hardcoded tile to live data. A tile the board doesn't have is a
+    silent no-op (the tile was deleted, or this board doesn't carry it)."""
+    for s in board.get("sections", []):
+        if s.get("kind") != "compare":
+            continue
+        for col in s.get("columns", []):
+            for tile in col.get("items", []):
+                if str(tile.get("label", "")).startswith(match):
+                    tile["n"] = str(n)
+                    if label is not None:
+                        tile["label"] = label
+                    if tone is not None:
+                        tile["tone"] = tone
+                    return True
+    return False
+
+
 def upsert_section(board, title, section, after_kind="compare"):
     """Replace the section with this title, or insert it after the first
     section of `after_kind` (top if none)."""
@@ -150,6 +171,16 @@ TONE = {
     "cancelled": "none", "skipped": "none", "neutral": "none",
 }
 
+# States we never surface in the console. The push-based board update runs
+# INSIDE a CI run, so `gh run list` reports that very run as `in_progress` —
+# showing it would freeze the console as "in progress" forever, even though the
+# run finishes green moments later (its own update step can't outlive it).
+# Cancelled/skipped are concurrency-superseded churn on a busy branch, not
+# outcomes. Filtering both leaves a clean log of the latest real results; the
+# currently-building run reappears as success/failure on the next refresh.
+CONSOLE_SKIP = {"in_progress", "queued", "waiting", "requested",
+                "cancelled", "skipped"}
+
 
 def gh_runs(repo, limit):
     r = sh(["gh", "run", "list", "--repo", repo, "--limit", str(limit),
@@ -166,11 +197,19 @@ def console_lines(sources):
     """sources: [(repo, label, limit)] → statusgen console-section lines."""
     lines = []
     for repo, label, limit in sources:
-        data = gh_runs(repo, limit)
+        # Over-fetch: on a busy branch most recent runs are in-progress or
+        # concurrency-cancelled, so pull well past `limit` to still land
+        # `limit` real outcomes after CONSOLE_SKIP filtering.
+        data = gh_runs(repo, max(limit * 6, 30))
         if data is None:
             continue
+        shown = 0
         for r in data:
             state = r.get("conclusion") or r.get("status") or ""
+            if state in CONSOLE_SKIP:
+                continue
+            if shown >= limit:
+                break
             # createdAt is UTC ISO-8601 (…Z). Pass it as `ts` so the renderer
             # localizes it to the viewer's timezone (fmtTime); only the trigger
             # event goes in meta. (Baking a "… UTC" string here showed UTC to
@@ -190,6 +229,7 @@ def console_lines(sources):
             if url:
                 line["href"] = url
             lines.append(line)
+            shown += 1
         # A terminal watch line per repo: the cmd renders as a
         # copy-to-clipboard chip; with no run id, gh prompts with
         # in-progress runs — the "watch it live" gesture.

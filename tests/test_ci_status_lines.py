@@ -61,6 +61,45 @@ class ConsoleLinesTest(unittest.TestCase):
         cmds = [ln["cmd"] for ln in lines if "cmd" in ln]
         self.assertEqual(cmds, ["gh run watch -R o/a", "gh run watch -R o/b"])
 
+    def _run(self, status, conclusion):
+        return {"status": status, "conclusion": conclusion, "headBranch": "dev",
+                "event": "push", "createdAt": "2026-07-13T19:03:04Z",
+                "url": "https://github.com/o/r/actions/runs/1"}
+
+    def test_in_progress_and_cancelled_runs_are_skipped(self):
+        # The mess the push-based update used to freeze on: a still-running row
+        # on top, then concurrency-cancelled churn — none should surface.
+        runs = [self._run("in_progress", None),
+                self._run("completed", "cancelled"),
+                self._run("completed", "cancelled"),
+                self._run("completed", "success")]
+        lib.gh_runs = lambda repo, limit: runs
+        lines = lib.console_lines([("o/r", "Repo", 4)])
+        statuses = [ln["status"] for ln in lines if "cmd" not in ln]
+        self.assertEqual(statuses, ["success"])  # only the real outcome
+
+    def test_failures_survive_the_filter(self):
+        runs = [self._run("in_progress", None), self._run("completed", "failure")]
+        lib.gh_runs = lambda repo, limit: runs
+        lines = lib.console_lines([("o/r", "Repo", 4)])
+        self.assertEqual([ln["status"] for ln in lines if "cmd" not in ln], ["failure"])
+
+    def test_limit_respected_after_filtering(self):
+        runs = ([self._run("in_progress", None)] * 5
+                + [self._run("completed", "success")] * 10)
+        lib.gh_runs = lambda repo, limit: runs
+        lines = lib.console_lines([("o/r", "Repo", 3)])
+        self.assertEqual(len([ln for ln in lines if "cmd" not in ln]), 3)
+
+    def test_overfetch_asks_gh_for_more_than_limit(self):
+        seen = {}
+        def fake(repo, limit):
+            seen["limit"] = limit
+            return [dict(RUN)]
+        lib.gh_runs = fake
+        lib.console_lines([("o/r", "Repo", 4)])
+        self.assertGreaterEqual(seen["limit"], 30)
+
 
 if __name__ == "__main__":
     unittest.main()

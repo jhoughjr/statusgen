@@ -53,6 +53,14 @@ def main():
     }
     board = lib.load_board(board_path)
     lib.upsert_section(board, "CI — recent runs", section, after_kind="compare")
+    # Wire the once-hardcoded "CI build" tile to the latest real CI outcome
+    # (the first non-watch console line — console_lines already filtered out
+    # in-progress and superseded-cancelled runs).
+    latest = next((l for l in lines if "cmd" not in l), None)
+    if latest:
+        ok = latest.get("status") == "success"
+        lib.set_compare_tile(board, "CI build", "✓" if ok else "✗",
+                             tone="go" if ok else "you")
     lib.save_board(board_path, board)
     print(f"ci-status: {len(lines)} runs, latest {lines[0]['text']} = {lines[0]['status']}")
     return 0

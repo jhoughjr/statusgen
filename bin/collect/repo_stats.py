@@ -30,6 +30,12 @@ type" stat-tile row and a "Test mix" donut — upserted so a board that never ha
 them gets them without a hand-edit. Old reports without the object leave any
 existing sections with their last-good numbers.
 
+Also self-seeds a "Test results" stat row right under the compare headline:
+passed / skipped counts, plus e2e pass/fail/flaky tiles when the run folded
+an e2e report in (e2e is continue-on-error in CI, so its failures reach the
+report of a green run — the only red the report can carry). Provenance (CI
+branch@sha) rides in the section desc.
+
 Config (~/.roostrc):
   ROOST_STATS_BOARD=clauffice                          # board dir under the status site
   ROOST_STATS_GH_REPO=Austin-MacWorks/Phoenix-Electron # repo slug for gh
@@ -191,6 +197,67 @@ def patch_test_types(board, tbt):
     return True
 
 
+def build_test_results_section(report):
+    """From the report's headline counts (and its `e2e` object when the run
+    folded one in), build the "Test results" stat row: passed, skipped, and —
+    the only red CI can report today — how e2e did. Reports publish only from
+    green runs (the vitest step gates the emit step), so there is no vitest
+    "failed" tile to build: a failing unit test means no report at all, which
+    the STALE flag already surfaces. E2E runs with continue-on-error, so its
+    failures DO reach the report — those get the err tone."""
+    passed = int(report["tests_passed"])
+    total = report.get("tests_total")
+    e2e = report.get("e2e") or {}
+    sha = str(report.get("sha", ""))[:7]
+    branch = str(report.get("branch", "")).strip() or "CI"
+
+    items = [{"n": f"{passed:,}", "label": "Passed", "tone": "go"}]
+    if total is not None:
+        skipped = max(int(total) - passed, 0)
+        items.append({"n": f"{skipped:,}", "label": "Skipped / todo",
+                      "tone": "done"})
+
+    failing = 0
+    if e2e.get("total") is not None:
+        e2e_failed = int(e2e.get("failed") or 0)
+        e2e_flaky = int(e2e.get("flaky") or 0)
+        green = bool(e2e.get("green", e2e_failed == 0))
+        items.append({"n": f"{int(e2e.get('passed') or 0)}/{int(e2e['total'])}",
+                      "label": "E2E passed", "tone": "go" if green else "err"})
+        if e2e_failed:
+            items.append({"n": f"{e2e_failed:,}", "label": "E2E failed",
+                          "tone": "err"})
+        if e2e_flaky:
+            items.append({"n": f"{e2e_flaky:,}", "label": "E2E flaky",
+                          "tone": "you"})
+        if not green:
+            failing = e2e_failed or 1
+
+    desc = f"from CI {branch}@{sha}" if sha else "from CI"
+    if e2e.get("total") is None:
+        desc += " · no e2e in this run"
+    return {
+        "kind": "stats", "icon": "✅", "title": "Test results",
+        "desc": desc,
+        "count": "all green" if not failing else f"{failing} e2e failing",
+        "items": items,
+    }
+
+
+def patch_test_results(board, report):
+    """Upsert the "Test results" row right after the compare headline (above
+    the tests-by-type tiles — main() calls this after patch_test_types, and
+    the last upsert lands first). Boards self-seed on first run. A report
+    without the headline count (shouldn't happen — tests_passed is required
+    upstream) is a no-op. Returns True when patched."""
+    if "tests_passed" not in report:
+        return False
+    lib.upsert_section(board, "Test results",
+                       build_test_results_section(report),
+                       after_kind="compare")
+    return True
+
+
 def patch_coverage_chart(board, covd, count):
     """Patch a "Test Coverage" barchart from the report's `coverage` object:
     metric bars matched by label, note rebuilt with the zero-coverage file
@@ -273,8 +340,13 @@ def main():
     tbt = report.get("tests_by_type") or {}
     types = patch_test_types(board, tbt)
 
-    if not (patched or chart or types):
-        print("repo-stats: no compare, Test Coverage, or tests_by_type to patch — nothing to do")
+    # After patch_test_types so this upsert lands first: compare → Test
+    # results → Tests by type → Test mix.
+    results = patch_test_results(board, report)
+
+    if not (patched or chart or types or results):
+        print("repo-stats: nothing to patch — no compare, Test Coverage, "
+              "tests_by_type, or test results")
         return 0
 
     # Optional second branch (e.g. main while the headline tracks dev):
@@ -312,14 +384,19 @@ def main():
     # clear a flag a past (stricter) run left behind when we're now fresh, so
     # the ⚠ badge actually goes away instead of sticking forever.
     for s in board.get("sections", []):
-        if s.get("kind") != "compare":
-            continue
-        for tile in s["columns"][0]["items"]:
-            if str(tile.get("label", "")).startswith(("Tests green", "Coverage")):
+        if s.get("kind") == "compare":
+            for tile in s["columns"][0]["items"]:
+                if str(tile.get("label", "")).startswith(("Tests green", "Coverage")):
+                    if stale:
+                        tile["stale"] = True
+                    else:
+                        tile.pop("stale", None)
+        elif s.get("kind") == "stats" and s.get("title") == "Test results":
+            # Freshly upserted above (no lingering flags to clear) — but the
+            # fresh numbers still come from an old report when stale.
+            for tile in s.get("items", []):
                 if stale:
                     tile["stale"] = True
-                else:
-                    tile.pop("stale", None)
 
     ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
     name = cfg.get("ROOST_STATS_LABEL") or slug.split("/")[-1]
@@ -328,7 +405,7 @@ def main():
 
     lib.save_board(board_path, board)
     print(f"repo-stats: tests={count} coverage={cov}% chart={'patched' if chart else 'n/a'} "
-          f"types={'patched' if types else 'n/a'} "
+          f"types={'patched' if types else 'n/a'} results={'patched' if results else 'n/a'} "
           f"(CI {branch}@{sha}, run {run_id}, Δ+{delta} vs 7d-ago {base}){extra and ' |' + extra}"
           f"{' STALE vs HEAD ' + head if stale else ''}")
     return 0

@@ -32,7 +32,7 @@ Each section is `{ "kind": "...", ... }`. Supported kinds:
 ```json
 { "kind": "stats", "items": [ { "n": "1196", "label": "Tests green", "tone": "go" } ] }
 ```
-`tone` ∈ `go | you | srv | wip | done` (green / amber / blue / indigo / grey). `n` is a string (may be "#8", "CI", etc.).
+`tone` ∈ `go | you | srv | wip | done | err` (green / amber / blue / indigo / grey / red). `n` is a string (may be "#8", "CI", etc.). `err` is for genuine failure states (e.g. e2e tests failing) — an `err` stat tile also gets a red border + tinted background so red never hides in a tile row.
 
 ### `banner` — a full-width note
 ```json
@@ -105,6 +105,8 @@ Each line renders a tone-colored dot + `status` word + `text`, with an optional 
 
 Quantitative values a per-project collector refreshes live come from the repo:
 - `stats` tiles whose `label` matches a known metric (e.g. "Tests green").
+- Whole self-seeded `stats` sections matched by `title` (e.g. "Test results",
+  "Tests by type") — collectors upsert these; hand edits will be overwritten.
 - `barchart` `series[].value` and the chart `note`.
 - `pie` `slices[].value` and the chart `note`.
 

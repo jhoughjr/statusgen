@@ -367,9 +367,13 @@
   // console — a terminal-styled log block (dark, monospace). Each line is a
   // status dot (tone-colored) + a status word + text + right-aligned meta.
   // Used for CI runs. Reads section.lines: {text, meta, status, tone, href, cmd}.
-  function renderConsole(section) {
-    const term = el("div", { class: "console" });
-    for (const ln of section.lines || section.items || []) {
+
+  // Render console rows into `term` (replacing its contents). Shared by the
+  // static `console` renderer and the self-refreshing `live-console` one.
+  function fillConsole(term, lines) {
+    term.innerHTML = "";
+    const rows = lines || [];
+    for (const ln of rows) {
       const tone = ln.tone ? ` ${ln.tone}` : "";
       const line = el("div", { class: "console-line" });
       line.append(el("span", { class: `console-dot${tone}`, "aria-hidden": "true" }));
@@ -391,13 +395,65 @@
       if (metaText) line.append(el("span", { class: "console-meta" }, metaText));
       term.append(line);
     }
+    if (!rows.length) term.append(el("div", { class: "console-line console-empty" }, "no active runs"));
+  }
+
+  function renderConsole(section) {
+    const term = el("div", { class: "console" });
+    fillConsole(term, section.lines || section.items || []);
     return el("section", { class: "block" }, [buildHeading(section), term]);
+  }
+
+  // live-console — a self-refreshing console. Polls section.poll.url and
+  // re-renders its rows, so in-progress/queued CI runs (which the static
+  // collector filters out) show up live. The refresh cadence is a setting on
+  // the SERVER-SIDE poller (the mini) — the endpoint reports its own intervalMs
+  // and this view simply follows it, so there is one knob in one place. Section:
+  //   { kind:"live-console", title, desc, poll:{ url, intervalMs } }
+  // Endpoint returns { lines:[...], intervalMs?, updatedAt? }.
+  function renderLiveConsole(section) {
+    const poll = section.poll || {};
+    const url = poll.url;
+    let interval = Number(poll.intervalMs) || 30000;
+    let timer = null;
+
+    const dot = el("span", { class: "live-dot", title: "live" });
+    const stamp = el("span", { class: "live-stamp" }, "connecting…");
+    const controls = el("div", { class: "live-controls" }, [dot, el("span", { class: "live-label" }, "live"), stamp]);
+    const term = el("div", { class: "console" });
+
+    function schedule(ms) {
+      if (timer) clearInterval(timer);
+      timer = setInterval(tick, ms);
+    }
+    function tick() {
+      if (!url) { fillConsole(term, []); dot.classList.add("stale"); stamp.textContent = "no endpoint"; return; }
+      fetch(url, { cache: "no-cache" })
+        .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+        .then((data) => {
+          fillConsole(term, data.lines || data.items || []);
+          dot.classList.remove("stale");
+          // Follow the poller's own cadence if it advertises one.
+          const ms = Number(data.intervalMs) || interval;
+          if (ms !== interval) { interval = ms; schedule(interval); }
+          stamp.textContent = `updated ${new Date().toLocaleTimeString()} · every ${Math.round(interval / 1000)}s`;
+        })
+        .catch(() => {
+          dot.classList.add("stale");
+          stamp.textContent = "unreachable — retrying";
+        });
+    }
+
+    tick();              // immediate first load
+    schedule(interval);  // then follow the cadence
+    return el("section", { class: "block" }, [buildHeading(section), controls, term]);
   }
 
   const RENDERERS = {
     stats: renderStats,
     compare: renderCompare,
     console: renderConsole,
+    "live-console": renderLiveConsole,
     banner: renderBanner,
     barchart: renderBarchart,
     pie: renderPie,

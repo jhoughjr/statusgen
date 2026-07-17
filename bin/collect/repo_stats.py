@@ -308,12 +308,18 @@ def main():
     if stale:
         aged = f", {age_h:.0f}h old" if age_h is not None else ""
         stale_note = f" · ⚠ STALE — {branch} is at {head}, numbers as of {sha}{aged}"
-        for s in board.get("sections", []):
-            if s.get("kind") != "compare":
-                continue
-            for tile in s["columns"][0]["items"]:
-                if str(tile.get("label", "")).startswith(("Tests green", "Coverage")):
+    # Always write the CURRENT staleness onto the tiles — set when stale, and
+    # clear a flag a past (stricter) run left behind when we're now fresh, so
+    # the ⚠ badge actually goes away instead of sticking forever.
+    for s in board.get("sections", []):
+        if s.get("kind") != "compare":
+            continue
+        for tile in s["columns"][0]["items"]:
+            if str(tile.get("label", "")).startswith(("Tests green", "Coverage")):
+                if stale:
                     tile["stale"] = True
+                else:
+                    tile.pop("stale", None)
 
     ts = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
     name = cfg.get("ROOST_STATS_LABEL") or slug.split("/")[-1]

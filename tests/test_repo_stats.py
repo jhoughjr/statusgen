@@ -120,6 +120,70 @@ class TestTypeSectionsTest(unittest.TestCase):
         self.assertEqual(board, before)
 
 
+REPORT = {"sha": "abc1234def0", "branch": "dev",
+          "tests_passed": 5410, "tests_total": 5432,
+          "e2e": {"passed": 5, "failed": 1, "flaky": 1, "skipped": 0,
+                  "total": 7, "green": False, "duration_ms": 31000}}
+
+
+class TestResultsSectionTest(unittest.TestCase):
+    def test_full_report_builds_all_tiles(self):
+        sec = repo_stats.build_test_results_section(REPORT)
+        self.assertEqual(sec["kind"], "stats")
+        self.assertEqual(sec["title"], "Test results")
+        self.assertEqual(sec["count"], "1 e2e failing")
+        self.assertIn("dev@abc1234", sec["desc"])
+        tiles = {t["label"]: (t["n"], t["tone"]) for t in sec["items"]}
+        self.assertEqual(tiles, {
+            "Passed": ("5,410", "go"),
+            "Skipped / todo": ("22", "done"),
+            "E2E passed": ("5/7", "err"),
+            "E2E failed": ("1", "err"),
+            "E2E flaky": ("1", "you"),
+        })
+
+    def test_green_e2e_gets_go_tone_and_no_failure_tiles(self):
+        green = {**REPORT, "e2e": {"passed": 7, "failed": 0, "flaky": 0,
+                                   "skipped": 0, "total": 7, "green": True}}
+        sec = repo_stats.build_test_results_section(green)
+        self.assertEqual(sec["count"], "all green")
+        tiles = {t["label"]: t["tone"] for t in sec["items"]}
+        self.assertEqual(tiles.get("E2E passed"), "go")
+        self.assertNotIn("E2E failed", tiles)
+        self.assertNotIn("E2E flaky", tiles)
+
+    def test_no_e2e_degrades_to_vitest_only(self):
+        sec = repo_stats.build_test_results_section(
+            {"sha": "abc1234", "branch": "main",
+             "tests_passed": 100, "tests_total": 100})
+        self.assertEqual(sec["count"], "all green")
+        self.assertIn("no e2e in this run", sec["desc"])
+        labels = [t["label"] for t in sec["items"]]
+        self.assertEqual(labels, ["Passed", "Skipped / todo"])
+        self.assertEqual(sec["items"][1]["n"], "0")
+
+    def test_old_report_without_total_omits_skipped(self):
+        sec = repo_stats.build_test_results_section({"tests_passed": 42})
+        self.assertEqual([t["label"] for t in sec["items"]], ["Passed"])
+
+    def test_patch_seeds_after_compare_and_replaces(self):
+        board = {"sections": [{"kind": "compare", "columns": [{"items": []}]},
+                              chart()]}
+        self.assertTrue(repo_stats.patch_test_results(board, REPORT))
+        self.assertEqual(board["sections"][1]["title"], "Test results")
+        repo_stats.patch_test_results(board, {**REPORT, "tests_passed": 6000})
+        titles = [s.get("title") for s in board["sections"]]
+        self.assertEqual(titles.count("Test results"), 1)
+        sec = board["sections"][1]
+        self.assertEqual(sec["items"][0]["n"], "6,000")
+
+    def test_report_without_headline_count_is_noop(self):
+        board = {"sections": [{"kind": "compare", "columns": [{"items": []}]}]}
+        before = copy.deepcopy(board)
+        self.assertFalse(repo_stats.patch_test_results(board, {"sha": "x"}))
+        self.assertEqual(board, before)
+
+
 class ReportAgeHoursTest(unittest.TestCase):
     def test_missing_or_unparseable_is_none(self):
         self.assertIsNone(repo_stats.report_age_hours({}))

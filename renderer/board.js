@@ -66,14 +66,15 @@
   const FILL_VAR = { code: "var(--accent)", gen: "var(--done)" };
 
   // Maps a pie slice `tone` to the CSS variable that colors it. Same
-  // go/you/srv/wip/done palette as stats tiles and pills — keep in sync
-  // with the --go/--you/--srv/--wip/--done custom properties in board.css.
+  // go/you/srv/wip/done/err palette as stats tiles and pills — keep in sync
+  // with the --go/--you/--srv/--wip/--done/--err custom properties in board.css.
   const TONE_VAR = {
     go: "var(--go)",
     you: "var(--you)",
     srv: "var(--srv)",
     wip: "var(--wip)",
     done: "var(--done)",
+    err: "var(--err)",
   };
 
   const SVG_NS = "http://www.w3.org/2000/svg";

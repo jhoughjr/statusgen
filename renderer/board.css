@@ -11,6 +11,7 @@
   --srv:#2c6c9c; --srv-bg:#e2eef7;
   --wip:#5a52c8; --wip-bg:#e9e8f9;
   --done:#6a7482;--done-bg:#edf0f3;
+  --err:#b3383e; --err-bg:#f8e5e6;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -22,6 +23,7 @@
     --srv:#5ea6dc; --srv-bg:#122232;
     --wip:#9a93f2; --wip-bg:#1c1a33;
     --done:#8b95a2;--done-bg:#20252d;
+    --err:#e0666d; --err-bg:#2e1517;
   }
 }
 :root[data-theme="light"] {
@@ -31,6 +33,7 @@
   --go:#1c8a55; --go-bg:#e4f3ec; --you:#b06a12; --you-bg:#f8ecd9;
   --srv:#2c6c9c; --srv-bg:#e2eef7; --wip:#5a52c8; --wip-bg:#e9e8f9;
   --done:#6a7482; --done-bg:#edf0f3;
+  --err:#b3383e; --err-bg:#f8e5e6;
 }
 :root[data-theme="dark"] {
   --ground:#101319; --panel:#181c23; --panel-2:#1e232b;
@@ -39,6 +42,7 @@
   --go:#4bc98a; --go-bg:#12291f; --you:#e2a24e; --you-bg:#2c2213;
   --srv:#5ea6dc; --srv-bg:#122232; --wip:#9a93f2; --wip-bg:#1c1a33;
   --done:#8b95a2; --done-bg:#20252d;
+  --err:#e0666d; --err-bg:#2e1517;
 }
 
 * { box-sizing: border-box; }
@@ -80,6 +84,7 @@ h2 .sec-link:hover { color: var(--accent); text-decoration: underline; }
 .console-dot.wip { background: var(--wip); }
 .console-dot.srv { background: var(--srv); }
 .console-dot.done { background: var(--done); }
+.console-dot.err { background: var(--err); }
 .console-status { width: 6rem; flex: 0 0 auto; color: #8b949e; }
 .console-text { color: #c9d1d9; }
 .console-text a { color: inherit; text-decoration: underline dotted #6e7681; text-underline-offset: 3px; }
@@ -111,6 +116,7 @@ h2 .sec-link:hover { color: var(--accent); text-decoration: underline; }
 
 .stat.go .n { color: var(--go); } .stat.you .n { color: var(--you); }
 .stat.srv .n { color: var(--srv); } .stat.wip .n { color: var(--wip); } .stat.done .n { color: var(--done); }
+.stat.err .n { color: var(--err); } .stat.err { border-color: var(--err); background: var(--err-bg); }
 
 section.block { margin-top: 2.4rem; }
 h2 { font-size: 1.05rem; font-weight: 650; margin: 0 0 0.9rem; display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
@@ -137,6 +143,7 @@ h2 .desc { font-size: 0.82rem; color: var(--ink-faint); font-weight: 400; }
 .pill.srv { color: var(--srv); background: var(--srv-bg); }
 .pill.wip { color: var(--wip); background: var(--wip-bg); }
 .pill.done { color: var(--done); background: var(--done-bg); }
+.pill.err { color: var(--err); background: var(--err-bg); }
 
 .tablewrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }

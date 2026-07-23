@@ -146,7 +146,7 @@ h2 .sec-icon { font-size: 0.95rem; align-self: center; line-height: 1; }
 h2 .count { font-family: ui-monospace, Menlo, monospace; font-size: 0.78rem; color: var(--ink-faint); font-weight: 500; }
 h2 .desc { font-size: 0.82rem; color: var(--ink-faint); font-weight: 400; }
 
-.banner { border-radius: 12px; padding: 1rem 1.25rem; font-size: 0.95rem; border: 1px solid; }
+.banner { border-radius: 12px; padding: 1rem 1.25rem; font-size: 0.95rem; border: 1px solid; white-space: pre-line; }
 .banner.none { background: var(--panel); border-color: var(--hair); color: var(--ink-soft); }
 
 .card { background: var(--panel); border: 1px solid var(--hair); border-radius: 12px; overflow: hidden; }

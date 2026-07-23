@@ -29,8 +29,10 @@ a repo path). No config → print a skip note and exit 0, like every collector.
 Bucket fields:
   label     bar/slice label — also how a note refers to it
   root      repo or directory to scan (~ expanded)
-  paths     subpaths of root to include (default: all of root)
-  exclude   subpaths to skip, relative to root (default: none)
+  paths     subpaths of root to include (default: all of root). May contain
+            glob characters — "Sources/*/GeneratedSources" beats enumerating
+            modules that come and go.
+  exclude   subpaths to skip, relative to root (default: none); globs too
   ext       file extensions to count (default: every file)
   tests     "both" (default) | "only" | "exclude" — a file is a test if its
             name matches *.test.* / *.spec.* or it sits under a test dir
@@ -63,6 +65,23 @@ import lib  # noqa: E402
 PRUNE = {".git", "node_modules", "generated"}
 TEST_DIRS = {"test", "tests", "__tests__", "spec", "specs", "e2e"}
 TEST_FILE = re.compile(r"\.(test|spec)\.[^.]+$")
+
+
+def expand(root, patterns):
+    """Resolve a bucket's `paths`/`exclude` entries against root, expanding any
+    that contain glob characters.
+
+    Enumerating directories by hand rots: MWServer-Models grew a fourth
+    `Sources/*/GeneratedSources` module, and a hardcoded list of three silently
+    under-counted it by ~12k lines — the precise sort of confident-but-wrong
+    number this collector exists to prevent. A glob absorbs the fifth."""
+    out = []
+    for p in patterns:
+        if any(ch in p for ch in "*?["):
+            out.extend(sorted(root.glob(p)))
+        else:
+            out.append(root / p)
+    return out
 
 
 def is_test(path, root):
@@ -99,8 +118,15 @@ def bucket_lines(bucket):
 
     exts = tuple(bucket.get("ext") or [])
     mode = bucket.get("tests", "both")
-    excluded = {(root / p).resolve() for p in bucket.get("exclude", [])}
-    roots = [(root / p) for p in bucket.get("paths", [])] or [root]
+    excluded = {p.resolve() for p in expand(root, bucket.get("exclude", []))}
+    # "no paths configured" means the whole root; "paths configured that matched
+    # nothing" means zero. Collapsing the two would let one stale glob quietly
+    # count an entire repo into a bucket meant for a subdirectory.
+    patterns = bucket.get("paths", [])
+    roots = expand(root, patterns) if patterns else [root]
+    if patterns and not roots:
+        print(f"loc: {bucket.get('label')!r}: paths {patterns} matched nothing under {root} — counted 0")
+        return 0
 
     total = 0
     for start in roots:

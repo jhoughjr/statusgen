@@ -74,6 +74,23 @@ class TestBucketLines(unittest.TestCase):
     def test_missing_root_returns_none_not_zero(self):
         self.assertIsNone(loc.bucket_lines({"label": "gone", "root": "/nope/nowhere"}))
 
+    def test_paths_may_glob(self):
+        # A hardcoded module list under-counts the moment a module is added;
+        # this is the regression that motivated glob support.
+        write(self.root, "Sources/A/GeneratedSources/g.ts", 9)
+        write(self.root, "Sources/B/GeneratedSources/g.ts", 11)
+        write(self.root, "Sources/B/hand.ts", 100)
+        self.assertEqual(self.bucket(paths=["Sources/*/GeneratedSources"]), 20)
+
+    def test_a_glob_matching_nothing_counts_zero_not_everything(self):
+        self.assertEqual(self.bucket(paths=["Sources/*/Nope"]), 0)
+
+    def test_exclude_may_glob(self):
+        write(self.root, "Sources/A/GeneratedSources/g.ts", 9)
+        write(self.root, "Sources/B/GeneratedSources/g.ts", 11)
+        write(self.root, "Sources/B/hand.ts", 100)
+        self.assertEqual(self.bucket(paths=["Sources"], exclude=["Sources/*/GeneratedSources"]), 100)
+
     def test_no_ext_filter_counts_every_file(self):
         self.assertEqual(self.bucket(paths=["src/app"], ext=[]), 10 + 4 + 3 + 50 + 5)
 

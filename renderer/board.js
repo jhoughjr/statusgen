@@ -96,6 +96,27 @@
   // ---- section renderers ------------------------------------------------
   // Each takes a section object and returns the DOM node to append.
 
+  // How old a hand-written section's `asOf` date may get before its chip
+  // turns into a warning. Board-level (`staleAfterDays`), set in renderBoard.
+  let staleAfterDays = 7;
+
+  // `asOf` (YYYY-MM-DD) marks a section whose content is hand-written: the
+  // date a human last verified it. Collector-owned sections don't carry it —
+  // they're refreshed every push and can't drift. Past staleAfterDays the
+  // chip becomes a warning, because an editorial card that quietly stopped
+  // being true otherwise reads exactly like one that's still current.
+  function buildAsOf(asOf) {
+    if (!asOf) return null;
+    const t = Date.parse(`${asOf}T00:00:00Z`);
+    if (Number.isNaN(t)) return null;
+    const days = Math.floor((Date.now() - t) / 86400000);
+    const stale = days > staleAfterDays;
+    return el("span", {
+      class: `as-of${stale ? " stale" : ""}`,
+      title: `Hand-written — last verified ${asOf}`,
+    }, stale ? `⚠ ${days}d old` : `as of ${asOf}`);
+  }
+
   function buildHeading(section) {
     const h2 = el("h2");
     if (section.icon) h2.append(el("span", { class: "sec-icon", "aria-hidden": "true" }, section.icon));
@@ -106,6 +127,8 @@
       : document.createTextNode(title));
     if (section.count) h2.append(el("span", { class: "count" }, section.count));
     if (section.desc) h2.append(el("span", { class: "desc" }, ` — ${section.desc}`));
+    const asOf = buildAsOf(section.asOf);
+    if (asOf) h2.append(asOf);
     return h2;
   }
 
@@ -501,24 +524,122 @@
       .catch(() => {});
   }
 
+  // Render one section into `parent`. An unknown kind or a throwing renderer
+  // costs that one section, never the rest of the board.
+  function appendSection(parent, section) {
+    const renderFn = RENDERERS[section.kind];
+    if (!renderFn) {
+      console.warn(`statusgen: unknown section kind "${section.kind}"`);
+      return;
+    }
+    try {
+      parent.append(renderFn(section));
+    } catch (err) {
+      console.error(`statusgen: failed to render section kind "${section.kind}"`, err);
+    }
+  }
+
+  // ---- tabs ---------------------------------------------------------------
+  // A board groups its sections into tabs with a top-level `tabs` array:
+  //
+  //   "tabs": [{ "id": "now", "label": "Now", "icon": "⚡",
+  //              "sections": ["CI — running now", "Builds"] }]
+  //
+  // Sections are claimed by TITLE, not by a key on the section itself —
+  // deliberately. Collectors call upsert_section(), which replaces a section
+  // wholesale by title, so any grouping key stored on the section would be
+  // wiped on the next collector run. Keeping the mapping board-level means
+  // tabs survive every collector without one line of collector change.
+  //
+  // Anything no tab claims renders ABOVE the tab bar and stays visible on
+  // every tab. That covers the untitled hero row and banner (no title to key
+  // on), and makes the failure mode safe: a section a tab forgot shows up
+  // rather than vanishing into a tab nobody opens.
+  function partitionSections(data) {
+    const sections = Array.isArray(data.sections) ? data.sections : [];
+    const tabs = Array.isArray(data.tabs) ? data.tabs.filter((t) => t && t.id) : [];
+    if (!tabs.length) return { pinned: sections, groups: [] };
+
+    const claim = new Map();
+    for (const tab of tabs) {
+      for (const title of Array.isArray(tab.sections) ? tab.sections : []) {
+        if (!claim.has(title)) claim.set(title, tab.id);
+      }
+    }
+    const byTab = new Map(tabs.map((t) => [t.id, []]));
+    const pinned = [];
+    for (const section of sections) {
+      const id = section.title ? claim.get(section.title) : undefined;
+      if (id && byTab.has(id)) byTab.get(id).push(section);
+      else pinned.push(section);
+    }
+    // Drop tabs that claimed nothing present — a board can list a tab before
+    // its collector has ever seeded the section, and an empty tab is noise.
+    const groups = tabs
+      .map((tab) => ({ tab, sections: byTab.get(tab.id) }))
+      .filter((g) => g.sections.length);
+    return { pinned, groups };
+  }
+
+  function renderTabs(groups) {
+    const nav = el("nav", { class: "tabs", role: "tablist" });
+    const panels = el("div", { class: "tab-panels" });
+    const entries = [];
+
+    for (const { tab, sections } of groups) {
+      const panel = el("div", {
+        class: "tab-panel", id: `panel-${tab.id}`, role: "tabpanel", hidden: "",
+      });
+      for (const section of sections) appendSection(panel, section);
+      panels.append(panel);
+
+      const btn = el("button", {
+        class: "tab", type: "button", role: "tab",
+        id: `tab-${tab.id}`, "aria-controls": `panel-${tab.id}`, "aria-selected": "false",
+      });
+      if (tab.icon) btn.append(el("span", { class: "tab-icon", "aria-hidden": "true" }, tab.icon));
+      btn.append(document.createTextNode(tab.label || tab.id));
+      btn.addEventListener("click", () => select(tab.id, true));
+      nav.append(btn);
+      entries.push({ id: tab.id, btn, panel });
+    }
+
+    // The active tab lives in the URL hash so a tab is linkable and survives
+    // reload — replaceState, not a hash assignment, so switching tabs doesn't
+    // scroll the page or stack up history entries.
+    function select(id, updateHash) {
+      const target = entries.find((e) => e.id === id) || entries[0];
+      if (!target) return;
+      for (const e of entries) {
+        const on = e === target;
+        e.btn.classList.toggle("on", on);
+        e.btn.setAttribute("aria-selected", String(on));
+        e.panel.hidden = !on;
+      }
+      if (updateHash) history.replaceState(null, "", `#${target.id}`);
+    }
+
+    const fromHash = decodeURIComponent(location.hash.replace(/^#/, ""));
+    select(entries.some((e) => e.id === fromHash) ? fromHash : entries[0].id, false);
+    window.addEventListener("hashchange", () => {
+      const id = decodeURIComponent(location.hash.replace(/^#/, ""));
+      if (entries.some((e) => e.id === id)) select(id, false);
+    });
+
+    return [nav, panels];
+  }
+
   function renderBoard(data, container, generatedAt) {
     if (data.title) document.title = data.title;
+    staleAfterDays = Number.isFinite(Number(data.staleAfterDays))
+      ? Number(data.staleAfterDays) : 7;
 
     container.innerHTML = "";
     container.append(renderHeader(data, generatedAt));
 
-    for (const section of Array.isArray(data.sections) ? data.sections : []) {
-      const renderFn = RENDERERS[section.kind];
-      if (!renderFn) {
-        console.warn(`statusgen: unknown section kind "${section.kind}"`);
-        continue;
-      }
-      try {
-        container.append(renderFn(section));
-      } catch (err) {
-        console.error(`statusgen: failed to render section kind "${section.kind}"`, err);
-      }
-    }
+    const { pinned, groups } = partitionSections(data);
+    for (const section of pinned) appendSection(container, section);
+    if (groups.length) container.append(...renderTabs(groups));
   }
 
   function showError(container, message) {
@@ -541,6 +662,13 @@
         maybeAddHistoryLink(container, data);
       })
       .catch((err) => showError(container, `Couldn't load ${src}: ${err.message}`));
+  }
+
+  // Test seam: tests/test_tabs.mjs evaluates this file against a stub DOM and
+  // drives the renderer headlessly. `module` is undefined in a browser, so the
+  // guard makes this a no-op everywhere it actually ships.
+  if (typeof module === "object" && module && module.exports) {
+    module.exports = { renderBoard, partitionSections };
   }
 
   if (document.readyState === "loading") {

@@ -240,6 +240,41 @@ const tests = {
     assert.ok(!root.find("as-of")[0].classList.contains("stale"));
   },
 
+  "a tile with href renders as a link, without one stays a div"() {
+    const { api } = load();
+    const plain = api.buildStatTile({ n: "1", label: "Passed" });
+    const linked = api.buildStatTile({ n: "1", label: "Passed", href: "tests/" });
+    assert.equal(plain.tagName, "DIV");
+    assert.equal(plain.getAttribute("href"), null);
+    assert.equal(linked.tagName, "A");
+    assert.equal(linked.getAttribute("href"), "tests/");
+    assert.ok(linked.classList.contains("linked"));
+    assert.ok(!plain.classList.contains("linked"));
+  },
+
+  "a linked tile keeps its tone and stale flag"() {
+    const { api } = load();
+    const tile = api.buildStatTile({ n: "5", label: "E2E failed", tone: "err", stale: true, href: "tests/" });
+    assert.equal(tile.tagName, "A");
+    assert.ok(tile.classList.contains("err"));
+    assert.ok(tile.classList.contains("stale"));
+    assert.ok(tile.text.includes("⚠"));
+  },
+
+  "compare tiles honour href too"() {
+    const { api } = load();
+    const root = new StubNode("div");
+    api.renderBoard({
+      title: "b",
+      sections: [{ kind: "compare", title: "C", columns: [
+        { title: "L", items: [{ n: "1", label: "Tests green", href: "tests/" }] },
+      ] }],
+    }, root, null);
+    const linked = root.find("linked");
+    assert.equal(linked.length, 1);
+    assert.equal(linked[0].getAttribute("href"), "tests/");
+  },
+
   "a section with no asOf gets no chip"() {
     const { api } = load();
     const root = new StubNode("div");

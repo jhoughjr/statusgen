@@ -16,6 +16,9 @@ The renderer reads `board.json`, iterates `sections` in order, and renders each 
   "eyebrow": "Demo Office",
   "stamp": "Updated 2026-07-07 — one-line status line",
   "links": [ { "label": "History →", "href": "history/" } ],
+  "staleAfterDays": 7,
+  "tabs": [ { "id": "now", "label": "Now", "icon": "⚡",
+              "sections": ["CI — running now", "Builds"] } ],
   "sections": [ /* ordered array of section objects, each with a "kind" */ ]
 }
 ```
@@ -23,6 +26,23 @@ The renderer reads `board.json`, iterates `sections` in order, and renders each 
 `title` sets `<title>` and the H1. `eyebrow` is the small uppercase kicker. `stamp` is the mono sub-line under the title. `links` (optional) is an array of `{ label, href }` rendered as a header nav row — e.g. a detail page's "← back" or "all history". A board also auto-shows a **History →** link when a sibling `history/board.json` exists.
 
 **Section headings** — any titled section may add `"icon"` (leading emoji), `"count"` (mono badge after the title), `"desc"` (grey suffix), and `"href"` (turns the title into a link, e.g. to a detail page). These are generic across kinds.
+
+## Tabs (optional)
+
+A board past a dozen sections reads better grouped than scrolled. `tabs` is an ordered array of `{ id, label, icon?, sections: [title, …] }`; the renderer draws a tab bar and puts each named section in that tab's panel. The open tab lives in the URL hash (`…/clauffice/#code`), so a tab is linkable and survives reload.
+
+Two rules matter:
+
+- **Sections are claimed by title, not by a key on the section.** Collectors call `upsert_section()`, which replaces a section wholesale by title — a grouping key stored on the section would be wiped on the next collector run. Board-level mapping means tabs cost collectors nothing.
+- **Anything no tab claims renders above the tab bar and stays visible on every tab.** That's where the untitled hero row and banner go (no title to key on), and it makes the failure mode safe: a section a tab forgot shows up rather than vanishing into a tab nobody opens.
+
+A tab whose sections are all absent is dropped rather than drawn empty — a board may name a tab before its collector has ever seeded the section. Omit `tabs` entirely and the board renders as one flat column, exactly as before.
+
+## Staleness (`asOf`)
+
+A hand-written section may carry `"asOf": "2026-07-21"` — the date a human last verified it. The renderer shows a quiet `as of 2026-07-21` chip, and once the date is older than `staleAfterDays` (top level, default 7) the chip becomes a `⚠ 14d old` warning.
+
+**Only put `asOf` on sections a human writes.** A collector-owned section is refreshed on every push and cannot drift, so a stamp there would be a claim about hand-authorship that stops being true the moment it ages. `collect/loc.py` deletes any `asOf` it finds on a chart it has taken over, for exactly this reason.
 
 ## Section kinds
 
@@ -109,5 +129,10 @@ Quantitative values a per-project collector refreshes live come from the repo:
   "Tests by type") — collectors upsert these; hand edits will be overwritten.
 - `barchart` `series[].value` and the chart `note`.
 - `pie` `slices[].value` and the chart `note`.
+- Lines-of-code charts of either kind, rebuilt wholesale by `collect/loc.py`
+  from `ROOST_LOC_CONFIG` (bucket = a set of paths/extensions to count). A
+  bucket whose repo isn't on the pushing machine keeps its previous value
+  rather than reporting 0 — two machines write this site and they don't have
+  the same clones.
 
 Collectors patch these in place (match by section `kind` + `title`/label) and leave narrative sections (`table`, `cards`, `split`, `banner`) untouched. Tones/pills use the palette above; keep them stable so the renderer's CSS variables apply.

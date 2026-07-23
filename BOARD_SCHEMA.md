@@ -25,6 +25,8 @@ The renderer reads `board.json`, iterates `sections` in order, and renders each 
 
 `title` sets `<title>` and the H1. `eyebrow` is the small uppercase kicker. `stamp` is the mono sub-line under the title. `links` (optional) is an array of `{ label, href }` rendered as a header nav row — e.g. a detail page's "← back" or "all history". A board also auto-shows a **History →** link when a sibling `history/board.json` exists.
 
+**Tile links** — a `stats` item or a `compare` column item may add `"href"`, which makes the whole tile a link (rendered as an `<a>`, so it keyboard-focuses and middle-clicks normally). A number on a board is the start of a question — "6,591 passed, which ones?" — and the tile is where the reader's eye already is. `collect/test_detail.py` uses this to point the test tiles at a generated `<slug>/tests/` page and the CI-build tile at the run itself.
+
 **Section headings** — any titled section may add `"icon"` (leading emoji), `"count"` (mono badge after the title), `"desc"` (grey suffix), and `"href"` (turns the title into a link, e.g. to a detail page). These are generic across kinds.
 
 ## Tabs (optional)

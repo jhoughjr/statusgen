@@ -138,17 +138,36 @@
     return el("span", { class: `pill${tone}` }, text);
   }
 
+  // buildStatTile — one number tile, shared by `stats` rows and `compare`
+  // columns so both get the same tone, stale flag, and link behaviour.
+  //
+  // `href` makes the whole tile a link: a number on a board is the start of a
+  // question ("6,591 passed — which ones? since when?"), and the tile is where
+  // the reader's eye already is. Rendered as an <a> rather than a click
+  // handler so it keyboard-focuses and middle-clicks like any other link.
+  function buildStatTile(item) {
+    const tone = item.tone ? ` ${item.tone}` : "";
+    // A stale tile shows numbers the collector couldn't refresh (a red CI
+    // streak leaves them behind HEAD). Mark it so a frozen figure reads as
+    // frozen, not current.
+    const stale = item.stale ? " stale" : "";
+    const link = item.href ? " linked" : "";
+    const attrs = { class: `stat${tone}${stale}${link}` };
+    if (item.stale) attrs.title = "Stale — CI hasn't reported a fresh green build; number is behind HEAD";
+    if (item.href) attrs.href = item.href;
+    const stat = el(item.href ? "a" : "div", attrs);
+    const n = el("div", { class: "n" }, item.ts ? fmtTime(item.ts) : (item.n ?? ""));
+    if (item.stale) n.append(el("span", { class: "stale-flag", "aria-label": "stale" }, " ⚠"));
+    stat.append(n);
+    stat.append(el("div", { class: "l" }, item.label ?? ""));
+    return stat;
+  }
+
   // stats — the tile row. Sits directly under the header stamp, no
   // heading or card wrapper.
   function renderStats(section) {
     const wrap = el("div", { class: "stats" });
-    for (const item of section.items || []) {
-      const tone = item.tone ? ` ${item.tone}` : "";
-      const stat = el("div", { class: `stat${tone}` });
-      stat.append(el("div", { class: "n" }, item.ts ? fmtTime(item.ts) : (item.n ?? "")));
-      stat.append(el("div", { class: "l" }, item.label ?? ""));
-      wrap.append(stat);
-    }
+    for (const item of section.items || []) wrap.append(buildStatTile(item));
     // A titled stats section renders as a normal labeled block (e.g. a "Server"
     // row that mirrors the hero tiles, for side-by-side comparison); the
     // untitled hero row stays wrapper-free directly under the stamp.
@@ -368,20 +387,7 @@
       head.append(document.createTextNode(c.title || ""));
       col.append(head);
       const tiles = el("div", { class: "stats" });
-      for (const item of c.items || []) {
-        const tone = item.tone ? ` ${item.tone}` : "";
-        // A stale tile shows numbers the collector couldn't refresh (a red CI
-        // streak leaves them behind HEAD). Mark it so a frozen figure reads as
-        // frozen, not current.
-        const stale = item.stale ? " stale" : "";
-        const stat = el("div", { class: `stat${tone}${stale}`,
-          ...(item.stale ? { title: "Stale — CI hasn't reported a fresh green build; number is behind HEAD" } : {}) });
-        const n = el("div", { class: "n" }, item.ts ? fmtTime(item.ts) : (item.n ?? ""));
-        if (item.stale) n.append(el("span", { class: "stale-flag", "aria-label": "stale" }, " ⚠"));
-        stat.append(n);
-        stat.append(el("div", { class: "l" }, item.label ?? ""));
-        tiles.append(stat);
-      }
+      for (const item of c.items || []) tiles.append(buildStatTile(item));
       col.append(tiles);
       wrap.append(col);
     }
@@ -668,7 +674,7 @@
   // drives the renderer headlessly. `module` is undefined in a browser, so the
   // guard makes this a no-op everywhere it actually ships.
   if (typeof module === "object" && module && module.exports) {
-    module.exports = { renderBoard, partitionSections };
+    module.exports = { renderBoard, partitionSections, buildStatTile };
   }
 
   if (document.readyState === "loading") {

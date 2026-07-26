@@ -123,5 +123,48 @@ class UpsertCompareTileTest(unittest.TestCase):
         self.assertEqual(b, before)
 
 
+class UpsertSectionTest(unittest.TestCase):
+    """A collector rebuilds its section every push. Anything a human set on it
+    for presentation has to survive that, or "put a logo on that section" is an
+    edit that silently un-does itself within the hour."""
+
+    def board(self):
+        return {"sections": [
+            {"kind": "compare", "columns": []},
+            {"kind": "stats", "title": "Test results", "logo": "ts",
+             "items": [{"n": "1", "label": "Passed"}]},
+        ]}
+
+    def test_a_hand_set_logo_survives_a_collector_rewrite(self):
+        b = self.board()
+        fresh = {"kind": "stats", "title": "Test results",
+                 "items": [{"n": "6605", "label": "Passed"}]}
+        lib.upsert_section(b, "Test results", fresh)
+        got = next(s for s in b["sections"] if s.get("title") == "Test results")
+        self.assertEqual(got["logo"], "ts")
+        self.assertEqual(got["items"][0]["n"], "6605")   # data still replaced
+
+    def test_a_collector_that_sets_the_key_itself_wins(self):
+        b = self.board()
+        lib.upsert_section(b, "Test results",
+                           {"kind": "stats", "title": "Test results",
+                            "logo": "swift", "items": []})
+        got = next(s for s in b["sections"] if s.get("title") == "Test results")
+        self.assertEqual(got["logo"], "swift")
+
+    def test_a_new_section_needs_no_previous_value(self):
+        b = self.board()
+        lib.upsert_section(b, "Brand new", {"kind": "stats", "title": "Brand new"})
+        got = next(s for s in b["sections"] if s.get("title") == "Brand new")
+        self.assertNotIn("logo", got)
+
+    def test_data_keys_are_not_preserved_only_presentation(self):
+        b = self.board()
+        lib.upsert_section(b, "Test results",
+                           {"kind": "stats", "title": "Test results", "items": []})
+        got = next(s for s in b["sections"] if s.get("title") == "Test results")
+        self.assertEqual(got["items"], [])   # stale numbers must NOT carry over
+
+
 if __name__ == "__main__":
     unittest.main()

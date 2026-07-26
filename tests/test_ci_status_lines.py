@@ -55,6 +55,25 @@ class ConsoleLinesTest(unittest.TestCase):
         lib.gh_runs = lambda repo, limit: []
         self.assertEqual(lib.console_lines([("o/r", "Repo", 4)]), [])
 
+    def test_a_source_can_tag_its_rows_with_a_stack_mark(self):
+        lib.gh_runs = lambda repo, limit: [dict(RUN)]
+        run, watch = lib.console_lines([("o/r", "Repo", 4, "swift")])
+        self.assertEqual(run["logo"], "swift")
+        # The watch chip is that repo's row too — an unmarked row in a merged
+        # feed reads as belonging to whichever stack came before it.
+        self.assertEqual(watch["logo"], "swift")
+
+    def test_an_untagged_source_emits_no_logo_key(self):
+        lib.gh_runs = lambda repo, limit: [dict(RUN)]
+        for line in lib.console_lines([("o/r", "Repo", 4)]):
+            self.assertNotIn("logo", line)
+
+    def test_each_source_keeps_its_own_mark_in_one_merged_feed(self):
+        lib.gh_runs = lambda repo, limit: [dict(RUN)]
+        lines = lib.console_lines([("o/a", "A", 1, "ts"), ("o/b", "B", 1, "swift")])
+        self.assertEqual([l.get("logo") for l in lines],
+                         ["ts", "ts", "swift", "swift"])
+
     def test_watch_chip_per_repo(self):
         lib.gh_runs = lambda repo, limit: [dict(RUN)]
         lines = lib.console_lines([("o/a", "A", 1), ("o/b", "B", 1)])

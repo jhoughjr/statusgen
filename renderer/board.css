@@ -100,6 +100,11 @@ h2 .sec-link:hover { color: var(--accent); text-decoration: underline; }
 /* A stack's brand mark in a compare heading. Sized in em so it tracks the
    heading text, and flex-none so a long column title can't squash it. */
 .stack-logo { width: 1.15em; height: 1.15em; flex: none; display: block; }
+/* In a console row the mark sits in the monospace grid, so it gets a fixed
+   box: rows must stay aligned whether or not a run carries one. */
+.console-line .stack-logo { width: 1.05em; height: 1.05em; }
+.tab .stack-logo { width: 1em; height: 1em; }
+h2 .stack-logo { width: 1.05em; height: 1.05em; align-self: center; }
 @media (max-width: 640px) { .compare { grid-template-columns: 1fr; } }
 .console { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 0.85rem 1rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; line-height: 1.75; overflow-x: auto; }
 .console-line { display: flex; align-items: center; gap: 0.7rem; white-space: nowrap; }

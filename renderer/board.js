@@ -172,7 +172,12 @@
 
   function buildHeading(section) {
     const h2 = el("h2");
-    if (section.icon) h2.append(el("span", { class: "sec-icon", "aria-hidden": "true" }, section.icon));
+    // A stack mark where the section belongs to one side of the board. Most of
+    // this board's sections are about ONE repo, and until they said so it read
+    // as if they were about all of it.
+    const logo = section.logo ? buildLogo(section.logo) : null;
+    if (logo) h2.append(logo);
+    else if (section.icon) h2.append(el("span", { class: "sec-icon", "aria-hidden": "true" }, section.icon));
     // Optional section.href turns the title into a link (e.g. "see the full log").
     const title = section.title || "";
     h2.append(section.href
@@ -472,6 +477,10 @@
       const line = el("div", { class: "console-line" });
       line.append(el("span", { class: `console-dot${tone}`, "aria-hidden": "true" }));
       line.append(el("span", { class: "console-status" }, ln.status ?? (ln.pill && ln.pill.text) ?? ""));
+      // Which stack this run belongs to. One merged, chronological feed reads
+      // better than two consoles — but only if each row says whose it is.
+      const rowLogo = ln.logo ? buildLogo(ln.logo) : null;
+      if (rowLogo) line.append(rowLogo);
       const text = ln.text ?? ln.q ?? "";
       line.append(el("span", { class: "console-text" },
         ln.href ? el("a", { href: ln.href, target: "_blank", rel: "noopener" }, text) : text));
@@ -667,7 +676,9 @@
         class: "tab", type: "button", role: "tab",
         id: `tab-${tab.id}`, "aria-controls": `panel-${tab.id}`, "aria-selected": "false",
       });
-      if (tab.icon) btn.append(el("span", { class: "tab-icon", "aria-hidden": "true" }, tab.icon));
+      const tabLogo = tab.logo ? buildLogo(tab.logo) : null;
+      if (tabLogo) btn.append(tabLogo);
+      else if (tab.icon) btn.append(el("span", { class: "tab-icon", "aria-hidden": "true" }, tab.icon));
       btn.append(document.createTextNode(tab.label || tab.id));
       btn.addEventListener("click", () => select(tab.id, true));
       nav.append(btn);

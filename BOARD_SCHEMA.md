@@ -29,12 +29,19 @@ The renderer reads `board.json`, iterates `sections` in order, and renders each 
 
 **Section headings** — any titled section may add `"icon"` (leading emoji), `"count"` (mono badge after the title), `"desc"` (grey suffix), and `"href"` (turns the title into a link, e.g. to a detail page). These are generic across kinds.
 
+**Stack marks (`logo`)** — `swift | ts | js`, an inline brand mark drawn (never fetched) for the stack a thing belongs to. Valid on a **section heading**, a **compare column**, a **tab**, and a single **console line**. Everywhere it appears it takes the place of `icon` rather than sitting beside it, and an unrecognised name falls back to the icon.
+
+Most sections on a multi-repo board are about *one* repo. Until they say so, a reader has no way to tell which — a test-results row reads as the board's tests when it is one repo's. On a console the mark goes per line, so one merged chronological feed can still say whose each run is, which beats splitting it into one console per repo.
+
+A collector rebuilds its section from data every push, so `logo` is carried over from the section it replaces (`lib.PRESERVED_SECTION_KEYS`) — otherwise setting one by hand would silently un-do itself within the hour.
+
 ## Tabs (optional)
 
-A board past a dozen sections reads better grouped than scrolled. `tabs` is an ordered array of `{ id, label, icon?, sections: [title, …] }`; the renderer draws a tab bar and puts each named section in that tab's panel. The open tab lives in the URL hash (`…/clauffice/#code`), so a tab is linkable and survives reload.
+A board past a dozen sections reads better grouped than scrolled. `tabs` is an ordered array of `{ id, label, icon?, logo?, sections: [title, …] }`; the renderer draws a tab bar and puts each named section in that tab's panel. The open tab lives in the URL hash (`…/clauffice/#code`), so a tab is linkable and survives reload.
 
 Two rules matter:
 
+- **A tab's sections render in *board* order, not in the order the tab lists them.** The tab list is a set of claims; `sections` is the running order. Reordering a tab means reordering the board array.
 - **Sections are claimed by title, not by a key on the section.** Collectors call `upsert_section()`, which replaces a section wholesale by title — a grouping key stored on the section would be wiped on the next collector run. Board-level mapping means tabs cost collectors nothing.
 - **Anything no tab claims renders above the tab bar and stays visible on every tab.** That's where the untitled hero row and banner go (no title to key on), and it makes the failure mode safe: a section a tab forgot shows up rather than vanishing into a tab nobody opens.
 

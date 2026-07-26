@@ -262,7 +262,15 @@ def patch_test_types(board, tbt):
     stats_sec, pie_sec = build_test_type_sections(tbt)
     # upsert inserts each right after the compare section, so the LAST upsert
     # lands first — do the donut first, tiles second, to read tiles → donut.
-    lib.upsert_section(board, "Test mix", pie_sec, after_kind="compare")
+    #
+    # The donut REFRESHES but never self-seeds: it plots exactly the numbers the
+    # tiles above it already state, so on a board that carries both it is a
+    # restatement, not a second view — and on this one it was 98% a single
+    # slice, which is a chart doing no work. Self-seeding made removing it
+    # impossible: deleting the section just brought it back within the hour.
+    # The tiles still seed themselves; a board that wants the donut keeps it.
+    if any(s.get("title") == "Test mix" for s in board.get("sections", [])):
+        lib.upsert_section(board, "Test mix", pie_sec, after_kind="compare")
     lib.upsert_section(board, "Tests by type", stats_sec, after_kind="compare")
     return True
 

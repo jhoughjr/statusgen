@@ -198,15 +198,25 @@ def upsert_section(board, title, section, after_kind="compare"):
     Presentational keys the board already carried (PRESERVED_SECTION_KEYS) are
     carried over when the incoming section doesn't set them — a collector owns
     its numbers, not how the board chooses to label it."""
-    old = next((s for s in board.get("sections", [])
-                if s.get("title") == title), None)
-    if old:
+    secs = list(board.get("sections", []))
+    at = next((i for i, s in enumerate(secs) if s.get("title") == title), None)
+
+    if at is not None:
         for key in PRESERVED_SECTION_KEYS:
-            if key in old and key not in section:
-                section[key] = old[key]
-    secs = [s for s in board.get("sections", []) if s.get("title") != title]
-    i = next((idx for idx, s in enumerate(secs) if s.get("kind") == after_kind), -1)
-    secs.insert(i + 1, section)
+            if key in secs[at] and key not in section:
+                section[key] = secs[at][key]
+        # Replace WHERE IT ALREADY IS. `after_kind` places a section the board
+        # has never carried; it is not a claim about where an existing one
+        # belongs. Re-homing on every push made running order collector-driven
+        # and un-authorable: each collector yanked its section back up to just
+        # below the compare block, so hand-arranged order survived exactly
+        # until the next status run.
+        secs[at] = section
+    else:
+        i = next((idx for idx, s in enumerate(secs)
+                  if s.get("kind") == after_kind), -1)
+        secs.insert(i + 1, section)
+
     board["sections"] = secs
     return board
 

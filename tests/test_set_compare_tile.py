@@ -158,6 +158,42 @@ class UpsertSectionTest(unittest.TestCase):
         got = next(s for s in b["sections"] if s.get("title") == "Brand new")
         self.assertNotIn("logo", got)
 
+    def test_an_existing_section_is_replaced_where_it_already_sits(self):
+        # Running order is a board decision. Re-homing a section on every push
+        # made it collector-driven: each collector yanked its section back up
+        # to just below the compare block, so a hand-arranged tab survived
+        # exactly until the next status run.
+        b = {"sections": [
+            {"kind": "compare", "columns": []},
+            {"kind": "stats", "title": "First"},
+            {"kind": "stats", "title": "Test results", "items": []},
+            {"kind": "stats", "title": "Last"},
+        ]}
+        lib.upsert_section(b, "Test results",
+                           {"kind": "stats", "title": "Test results",
+                            "items": [{"n": "1", "label": "x"}]})
+        self.assertEqual([s.get("title") for s in b["sections"]],
+                         [None, "First", "Test results", "Last"])
+
+    def test_a_new_section_still_lands_after_its_anchor(self):
+        b = {"sections": [
+            {"kind": "compare", "columns": []},
+            {"kind": "stats", "title": "Existing"},
+        ]}
+        lib.upsert_section(b, "Fresh", {"kind": "stats", "title": "Fresh"},
+                           after_kind="compare")
+        self.assertEqual([s.get("title") for s in b["sections"]],
+                         [None, "Fresh", "Existing"])
+
+    def test_repeated_upserts_never_duplicate_or_drift(self):
+        b = {"sections": [{"kind": "compare", "columns": []},
+                          {"kind": "stats", "title": "A"},
+                          {"kind": "stats", "title": "B"}]}
+        for _ in range(3):
+            lib.upsert_section(b, "B", {"kind": "stats", "title": "B"})
+            lib.upsert_section(b, "A", {"kind": "stats", "title": "A"})
+        self.assertEqual([s.get("title") for s in b["sections"]], [None, "A", "B"])
+
     def test_data_keys_are_not_preserved_only_presentation(self):
         b = self.board()
         lib.upsert_section(b, "Test results",

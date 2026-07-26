@@ -88,6 +88,50 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
 
+  // Brand marks for the stack a compare column stands for. Drawn inline rather
+  // than fetched: the site is served behind a gate with no external requests,
+  // and an <img> to a CDN would be a broken box for exactly the readers who
+  // matter. Each is a 24×24 tile — a rounded rect plus either a path or two
+  // letters — because that is what these marks natively are.
+  const LOGOS = {
+    swift: {
+      label: "Swift", bg: "#F05138", radius: 5.4, ink: "#fff",
+      path: "M17.1 16.9c-2.4 1.4-5.7 1.5-9 .1-2.7-1.1-4.9-3-6.5-5.2 .8 .6 1.7 "
+          + "1.2 2.6 1.6 3.9 1.9 7.9 1.8 10.6 0-3.9-3-7.2-6.9-9.7-10.1 .7 .7 "
+          + "1.4 1.3 2.2 1.9 4.8 3.9 7.5 6.1 9.3 7.3 .6-1.6 .3-3.9-1-6.2 2.1 "
+          + "2.4 3.3 5.5 2.8 8.1 0 .1 0 .2 0 .2 1 1.2 .7 2.5 .6 2.3-.5-1-1.4"
+          + "-1.3-2.4-1.1z",
+    },
+    ts: { label: "TypeScript", bg: "#3178C6", radius: 2.2, ink: "#fff", text: "TS" },
+    js: { label: "JavaScript", bg: "#F7DF1E", radius: 2.2, ink: "#000", text: "JS" },
+  };
+
+  // An unknown name returns null so the caller can fall back to the emoji icon
+  // — a board naming a mark this renderer doesn't carry should look ordinary,
+  // not broken.
+  function buildLogo(name) {
+    const spec = LOGOS[name];
+    if (!spec) return null;
+    const svg = svgEl("svg", {
+      class: "stack-logo", viewBox: "0 0 24 24",
+      role: "img", "aria-label": spec.label,
+    });
+    svg.append(svgEl("rect", { width: 24, height: 24, rx: spec.radius, fill: spec.bg }));
+    if (spec.path) {
+      svg.append(svgEl("path", { d: spec.path, fill: spec.ink }));
+    }
+    if (spec.text) {
+      const text = svgEl("text", {
+        x: 21.4, y: 20.4, "text-anchor": "end", fill: spec.ink,
+        "font-family": "Helvetica,Arial,sans-serif",
+        "font-weight": 700, "font-size": 11.4,
+      });
+      text.append(document.createTextNode(spec.text));
+      svg.append(text);
+    }
+    return svg;
+  }
+
   // svgEl(tag, attrs) — SVG counterpart to el() above. Uses
   // createElementNS/setAttribute only (never innerHTML), so pie data can't
   // be interpreted as markup either.
@@ -398,7 +442,12 @@
     for (const c of cols) {
       const col = el("div", { class: "compare-col" });
       const head = el("div", { class: "compare-head" });
-      if (c.icon) head.append(el("span", { class: "sec-icon", "aria-hidden": "true" }, c.icon));
+      // A stack's own mark says "Swift" or "TypeScript" at a glance in a way a
+      // laptop/desktop emoji never did — those distinguished client from
+      // server, which the column titles already say.
+      const logo = c.logo ? buildLogo(c.logo) : null;
+      if (logo) head.append(logo);
+      else if (c.icon) head.append(el("span", { class: "sec-icon", "aria-hidden": "true" }, c.icon));
       head.append(document.createTextNode(c.title || ""));
       col.append(head);
       const tiles = el("div", { class: "stats" });

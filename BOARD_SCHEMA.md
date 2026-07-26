@@ -68,7 +68,15 @@ Each section is `{ "kind": "...", ... }`. Supported kinds:
   "note": "This week: 99 commits …",
   "series": [ { "label": "App source", "value": 40362, "fill": "code" } ] }
 ```
-Bar widths are computed by the renderer as `value / max(values) * 100%`. `fill` ∈ `code | gen`.
+Bar widths are computed by the renderer as `value / max(values) * 100%`.
+
+`fill` ∈ `code | gen` (the structural pair) **or** any `stats`/pie tone — `go | you | srv | wip | done | err`. Use a tone when a bar means an *outcome* rather than a category, so a chart of passed/failed builds reads in the same green and amber as the tiles above it.
+
+A series entry may add `"valueText"` — what to print at the end of the bar, when the raw number is not how a reader wants to see it:
+```json
+{ "label": "fc44010", "value": 5.6, "valueText": "5m36s", "fill": "go" }
+```
+The bar's *length* still comes from `value`, so the series stays measurable and comparable; only the printed label changes. Formatting the number into `value` itself instead would make it non-numeric and draw a zero-width bar.
 
 ### `pie` — donut chart (share of a whole)
 ```json

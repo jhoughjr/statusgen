@@ -233,10 +233,15 @@ def write_shell(site, rel_dir, page_title):
     (d / "index.html").write_text(template.read_text().replace("PLACEHOLDER", page_title))
 
 
-def link_board_tiles(board, href, run_url):
+def link_board_tiles(board, href, run_url, column=None):
     """Point the board's Test-results tiles at the detail page, and the compare
     headline's test tiles too. Re-applied every push because repo_stats upserts
-    that section wholesale."""
+    that section wholesale.
+
+    `column` scopes the compare edits to the column this report is about (the
+    client's). Everything here is derived from ONE repo's CI report, so on a
+    multi-repo compare board an unscoped write hands the other repo's tiles a
+    link to a run that never built it."""
     touched = 0
     for s in board.get("sections", []):
         if s.get("kind") == "stats" and s.get("title") == "Test results":
@@ -244,18 +249,17 @@ def link_board_tiles(board, href, run_url):
             for it in s.get("items", []):
                 it["href"] = href
             touched += 1
-        elif s.get("kind") == "compare":
-            for col in s.get("columns", []):
-                for it in col.get("items", []):
-                    lbl = str(it.get("label", ""))
-                    # Deliberately not "Test files": that tile is the SERVER
-                    # column's count, and this page is the client's suite.
-                    if lbl.startswith(("Tests green", "Coverage")):
-                        it["href"] = href
-                        touched += 1
-                    elif lbl.startswith("CI build") and run_url:
-                        it["href"] = run_url
-                        touched += 1
+    for col in lib.compare_columns(board, column):
+        for it in col.get("items", []):
+            lbl = str(it.get("label", ""))
+            # Deliberately not "Test files": that tile is a test-inventory
+            # count, and this page is the run results of one suite.
+            if lbl.startswith(("Tests green", "Coverage")):
+                it["href"] = href
+                touched += 1
+            elif lbl.startswith("CI build") and run_url:
+                it["href"] = run_url
+                touched += 1
     return touched
 
 
@@ -290,7 +294,7 @@ def main():
     write_shell(site, f"{slug}/tests", f"{label} — Test results")
 
     board = lib.load_board(board_path)
-    touched = link_board_tiles(board, "tests/", run_url)
+    touched = link_board_tiles(board, "tests/", run_url, column=label)
     lib.save_board(board_path, board)
 
     charted = min(len(dated), TREND_MAX)

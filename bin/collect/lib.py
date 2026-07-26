@@ -40,8 +40,19 @@ def site_dir(cfg=None):
                                 os.path.expanduser("~/status-site")))
 
 
-def sh(args, cwd=None):
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True)
+def sh(args, cwd=None, timeout=None):
+    """Run a command, capturing output. A timeout comes back as a non-zero
+    result rather than an exception, so a collector's normal "returncode != 0 →
+    leave the board alone" path covers a hung command too — nothing that talks
+    to a network (a git fetch against an unreachable remote, say) should be
+    able to wedge a status push."""
+    try:
+        return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
+                              timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(args, 124, "", "timed out")
+    except (OSError, ValueError) as e:
+        return subprocess.CompletedProcess(args, 127, "", str(e))
 
 
 # ── board IO ─────────────────────────────────────────────────────────────
@@ -101,25 +112,76 @@ def find_stat(board, label_prefix, column=0):
     return None
 
 
-def set_compare_tile(board, match, n, label=None, tone=None):
-    """Set the value (and optionally label/tone) of the compare tile whose
-    current label starts with `match`, searching every column. Returns True
-    when a tile was found and updated — collectors use this to wire a
-    previously hardcoded tile to live data. A tile the board doesn't have is a
-    silent no-op (the tile was deleted, or this board doesn't carry it)."""
+def compare_columns(board, match=None):
+    """The compare columns of `board`, optionally only those whose title
+    contains `match` (case-insensitive). A compare board is one section with N
+    columns — "Phoenix ⟷ MWServer" — so `match` is how a collector says *which
+    side of the board it owns* instead of writing into whichever column happens
+    to hold a similarly-named tile."""
+    out = []
     for s in board.get("sections", []):
         if s.get("kind") != "compare":
             continue
         for col in s.get("columns", []):
-            for tile in col.get("items", []):
-                if str(tile.get("label", "")).startswith(match):
-                    tile["n"] = str(n)
-                    if label is not None:
-                        tile["label"] = label
-                    if tone is not None:
-                        tile["tone"] = tone
-                    return True
+            if match is None or match.lower() in str(col.get("title", "")).lower():
+                out.append(col)
+    return out
+
+
+def set_compare_tile(board, match, n, label=None, tone=None, column=None):
+    """Set the value (and optionally label/tone) of the compare tile whose
+    current label starts with `match`. Returns True when a tile was found and
+    updated — collectors use this to wire a previously hardcoded tile to live
+    data. A tile the board doesn't have is a silent no-op (the tile was
+    deleted, or this board doesn't carry it).
+
+    `column` scopes the search to columns whose title contains it. Pass it
+    whenever the value is repo-specific: without it the search spans every
+    column and stops at the first label match, which on a two-repo board means
+    one repo's number can silently land in the other repo's column."""
+    for col in compare_columns(board, column):
+        for tile in col.get("items", []):
+            if str(tile.get("label", "")).startswith(match):
+                tile["n"] = str(n)
+                if label is not None:
+                    tile["label"] = label
+                if tone is not None:
+                    tile["tone"] = tone
+                return True
     return False
+
+
+def upsert_compare_tile(board, column, label, n, tone=None, href=None,
+                        match=None):
+    """Create-or-update a tile in the compare column whose title contains
+    `column`. Matches an existing tile by `match` (default: `label`) as a
+    prefix, so a collector can rename its own tile without orphaning the old
+    one; appends when there is no match.
+
+    set_compare_tile only ever updates — it is for wiring up tiles a human
+    already placed. This is for a column a collector *fills*, where the tile
+    may not exist yet. Returns True if a column was found."""
+    cols = compare_columns(board, column)
+    if not cols:
+        return False
+    prefix = match if match is not None else label
+    for col in cols:
+        items = col.setdefault("items", [])
+        tile = next((t for t in items
+                     if str(t.get("label", "")).startswith(prefix)), None)
+        if tile is None:
+            tile = {}
+            items.append(tile)
+        tile["n"] = str(n)
+        tile["label"] = label
+        # None clears: a tile that had a link last run but has none now must
+        # not keep pointing at a stale run.
+        for key, val in (("tone", tone), ("href", href)):
+            if val is None:
+                tile.pop(key, None)
+            else:
+                tile[key] = val
+    return True
 
 
 def upsert_section(board, title, section, after_kind="compare"):
@@ -191,6 +253,73 @@ def gh_runs(repo, limit):
         return json.loads(r.stdout)
     except json.JSONDecodeError:
         return None
+
+
+# Timing fields on top of gh_runs' set. `startedAt` is when the run actually
+# began (a queued run's createdAt can precede it by minutes on a busy account),
+# so duration is measured startedAt→updatedAt, not createdAt→updatedAt.
+RUN_FIELDS = ("status,conclusion,headBranch,event,createdAt,startedAt,"
+              "updatedAt,headSha,url,workflowName,displayTitle")
+
+
+def gh_run_history(repo, limit=20, branch=None, event=None, workflow=None):
+    """Runs for one repo, narrowed server-side by branch/event/workflow.
+
+    ci_status.py wants "whatever ran last, anywhere" — this wants "the
+    pipeline", i.e. one workflow on one branch, so successive entries are
+    comparable to each other. Returns None when `gh` is unavailable or errors,
+    which every caller treats as "leave the board alone"."""
+    args = ["gh", "run", "list", "--repo", repo, "--limit", str(limit),
+            "--json", RUN_FIELDS]
+    if branch:
+        args += ["--branch", branch]
+    if event:
+        args += ["--event", event]
+    if workflow:
+        args += ["--workflow", workflow]
+    r = sh(args)
+    if r.returncode != 0:
+        return None
+    try:
+        data = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, list) else None
+
+
+def run_duration(run):
+    """Seconds a run took, or None if it is unfinished or the stamps are
+    unparseable. GitHub's stamps are UTC ISO-8601 with a literal Z, which
+    fromisoformat only learned to parse in 3.11 — hence the +00:00 swap."""
+    def parse(value):
+        if not value:
+            return None
+        try:
+            return __import__("datetime").datetime.fromisoformat(
+                str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    start = parse(run.get("startedAt")) or parse(run.get("createdAt"))
+    end = parse(run.get("updatedAt"))
+    if start is None or end is None:
+        return None
+    secs = (end - start).total_seconds()
+    return secs if secs >= 0 else None
+
+
+def fmt_duration(secs):
+    """Seconds → a compact human duration: 45s, 6m, 5m36s, 1h04m."""
+    if secs is None:
+        return None
+    secs = int(round(secs))
+    if secs < 60:
+        return f"{secs}s"
+    if secs < 3600:
+        m, s = divmod(secs, 60)
+        return f"{m}m" if s == 0 else f"{m}m{s:02d}s"
+    h, rem = divmod(secs, 3600)
+    return f"{h}h{rem // 60:02d}m"
 
 
 def console_lines(sources):

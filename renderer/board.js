@@ -77,6 +77,15 @@
     err: "var(--err)",
   };
 
+  // A barchart `fill` may name either vocabulary: the two structural fills
+  // above, or any tone. Charts whose bars mean an *outcome* (a build that
+  // passed or failed) want the same green/amber the tiles use, and inventing a
+  // parallel set of fill names for them would leave two palettes to keep in
+  // step. Unknown tokens fall back to a neutral rather than to no color.
+  function fillVar(name) {
+    return FILL_VAR[name] || TONE_VAR[name] || "var(--ink-faint)";
+  }
+
   const SVG_NS = "http://www.w3.org/2000/svg";
 
   // svgEl(tag, attrs) — SVG counterpart to el() above. Uses
@@ -192,7 +201,7 @@
       const legend = el("div", { class: "legend" });
       for (const item of section.legend) {
         const swatch = el("i");
-        swatch.style.background = FILL_VAR[item.fill] || "var(--ink-faint)";
+        swatch.style.background = fillVar(item.fill);
         legend.append(el("span", null, [swatch, ` ${item.label ?? ""}`]));
       }
       card.append(legend);
@@ -204,12 +213,18 @@
     for (const s of series) {
       const value = Number(s.value) || 0;
       const pct = (value / max) * 100;
-      const row = el("div", { class: "bar-row", title: `${s.label}: ${fmtNum(s.value)}` });
+      // `valueText` labels the bar without changing it: the bar's LENGTH still
+      // comes from the numeric `value`, so a series can be measured in one
+      // unit and read in another ("5m36s" over a bar 5.6 minutes long). A
+      // formatted string in `value` itself would be NaN here and draw nothing.
+      const shown = s.valueText ?? fmtNum(s.value);
+      const row = el("div", { class: "bar-row", title: `${s.label}: ${shown}` });
       row.append(el("div", { class: "bar-label" }, s.label ?? ""));
       const fill = el("div", { class: `bar-fill ${s.fill || ""}`.trim() });
+      fill.style.background = fillVar(s.fill);
       fill.style.width = `${pct.toFixed(2)}%`;
       row.append(el("div", { class: "bar-track" }, fill));
-      row.append(el("div", { class: "bar-val" }, fmtNum(s.value)));
+      row.append(el("div", { class: "bar-val" }, shown));
       bars.append(row);
     }
     card.append(bars);

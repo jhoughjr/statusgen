@@ -28,8 +28,15 @@ any specific site.
 - Owns the **renderer** (`renderer/board.{js,css}`) and the tool that installs
   it into a site (`bin/sync-renderer.sh`, with content-hash cache-busting).
 - Owns the **generic collectors** (`bin/collect/*`) that produce `board.json`
-  from a data source: `repo_stats`, `ci_status`, `shipped_week`,
-  `api_consumption`, and `history` (a site's git log → the History board).
+  from a data source: `repo_stats`, `ci_status`, `ci_health`, `swift_tests`,
+  `shipped_week`, `api_consumption`, and `history` (a site's git log → the
+  History board).
+
+  On a multi-repo board these split by *which repo they speak for*, and each
+  scopes its writes to that repo's compare column: `ci_status` owns the ✓/✗,
+  `ci_health` the build's cost, `repo_stats` a repo with a CI test report,
+  `swift_tests` one without. An unscoped write is how a number ends up
+  rendered under another repo's heading.
 - Owns **scaffolding** (`bin/new-site.sh`, `bin/new-board.sh`).
 
 **roost — the driver.** The one place that knows *where things live and when to

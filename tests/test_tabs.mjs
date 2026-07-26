@@ -1,4 +1,5 @@
-// Tests for the renderer's tab grouping and the `asOf` staleness chip.
+// Tests for renderer behaviour that has no Python side: tab grouping, the
+// `asOf` staleness chip, and barchart fills/value labels.
 //
 // board.js ships as a plain <script> for a browser, so there's no module to
 // import. This evaluates it in a vm against a stub DOM — enough of one to let
@@ -25,6 +26,7 @@ class StubNode {
     this.children = [];
     this.listeners = {};
     this._hidden = false;
+    this.style = {};   // charts set width/background inline
     this.classList = {
       _set: new Set(),
       add: (...c) => c.forEach((x) => this.classList._set.add(x)),
@@ -121,6 +123,17 @@ function board(extra = {}) {
     ],
     ...extra,
   };
+}
+
+// Renders a one-section barchart board and hands back the tree to assert on.
+function bars(series, extra = {}) {
+  const { api } = load();
+  const root = new StubNode("div");
+  api.renderBoard({
+    title: "b",
+    sections: [{ kind: "barchart", title: "Chart", series, ...extra }],
+  }, root, null);
+  return root;
 }
 
 const TABS = [
@@ -290,6 +303,49 @@ const tests = {
       sections: [{ kind: "stats", title: "Bad", asOf: "last tuesday", items: [{ n: "1", label: "x" }] }],
     }, root, null);
     assert.equal(root.find("as-of").length, 0);
+  },
+
+  // ---- barchart ----------------------------------------------------------
+
+  "valueText labels the bar while value still sizes it"() {
+    const root = bars([
+      { label: "fc44010", value: 5.6, valueText: "5m36s", fill: "go" },
+      { label: "4d6a3bb", value: 31.1, valueText: "31m06s", fill: "go" },
+    ]);
+    assert.deepEqual(root.find("bar-val").map((n) => n.text), ["5m36s", "31m06s"]);
+    // Widths come from the numbers, so the longest build is the full bar and
+    // the short one is proportional — not two equal bars with different text.
+    const widths = root.find("bar-fill").map((n) => n.style.width);
+    assert.equal(widths[1], "100.00%");
+    assert.equal(widths[0], "18.01%");
+  },
+
+  "a bar with no valueText still prints its number"() {
+    const root = bars([{ label: "App source", value: 40362, fill: "code" }]);
+    assert.equal(root.find("bar-val")[0].text, "40,362");
+  },
+
+  "a tone may fill a bar, so outcome charts match the tiles"() {
+    const root = bars([
+      { label: "passed", value: 1, fill: "go" },
+      { label: "failed", value: 1, fill: "you" },
+    ]);
+    assert.deepEqual(root.find("bar-fill").map((n) => n.style.background),
+      ["var(--go)", "var(--you)"]);
+  },
+
+  "the structural fills keep their existing colors"() {
+    const root = bars([
+      { label: "hand", value: 1, fill: "code" },
+      { label: "gen", value: 1, fill: "gen" },
+    ]);
+    assert.deepEqual(root.find("bar-fill").map((n) => n.style.background),
+      ["var(--accent)", "var(--done)"]);
+  },
+
+  "an unknown fill falls back to a neutral rather than to nothing"() {
+    const root = bars([{ label: "x", value: 1, fill: "chartreuse" }]);
+    assert.equal(root.find("bar-fill")[0].style.background, "var(--ink-faint)");
   },
 };
 

@@ -102,6 +102,50 @@ def count_lines(path):
         return 0
 
 
+# Roots already checked this run — several buckets usually share one repo.
+_FRESHNESS_CHECKED = set()
+
+# A fetch against an unreachable remote must not wedge the push.
+FETCH_TIMEOUT = 60
+
+
+def warn_if_stale(root):
+    """Say so when `root` is a checkout sitting behind its upstream.
+
+    This counts the WORKING TREE, so a repo nobody pulls keeps reporting last
+    fortnight's code with today's date on it — the exact failure this collector
+    was written to end, reintroduced one level down. It went unnoticed for a
+    repo that had drifted 66 commits: the bars looked plausible, and nothing
+    said otherwise.
+
+    Fetches (best-effort, read-only) rather than trusting the remote-tracking
+    ref, because on a checkout nobody pulls that ref is stale too and the
+    comparison would cheerfully report 0 behind. Never pulls: moving someone's
+    working tree is `roost status`'s job, not a counter's. The fix when this
+    fires is to add the repo to ROOST_SOURCE_REPOS."""
+    root = str(root)
+    if root in _FRESHNESS_CHECKED:
+        return
+    _FRESHNESS_CHECKED.add(root)
+    if not os.path.isdir(os.path.join(root, ".git")):
+        return
+    upstream = lib.sh(["git", "-C", root, "rev-parse", "--abbrev-ref", "@{u}"])
+    if upstream.returncode != 0 or not upstream.stdout.strip():
+        return                      # detached or no tracking branch — nothing to compare
+    ref = upstream.stdout.strip()
+    lib.sh(["git", "-C", root, "fetch", "--quiet"], timeout=FETCH_TIMEOUT)
+    behind = lib.sh(["git", "-C", root, "rev-list", "--count", f"HEAD..{ref}"])
+    if behind.returncode != 0:
+        return
+    try:
+        n = int(behind.stdout.strip())
+    except ValueError:
+        return
+    if n:
+        print(f"loc: ⚠ {root} is {n} commit(s) behind {ref} — counting stale "
+              f"code; add it to ROOST_SOURCE_REPOS so a status push pulls it")
+
+
 def bucket_lines(bucket):
     """Total lines matching one bucket's filters, or None if the root isn't on
     this machine.
@@ -115,6 +159,7 @@ def bucket_lines(bucket):
     if not root.is_dir():
         print(f"loc: {bucket.get('label')!r}: {root} not on this machine — keeping previous value")
         return None
+    warn_if_stale(root)
 
     exts = tuple(bucket.get("ext") or [])
     mode = bucket.get("tests", "both")

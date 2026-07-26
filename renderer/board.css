@@ -97,6 +97,9 @@ h2 .sec-link:hover { color: var(--accent); text-decoration: underline; }
 .compare-col { min-width: 0; }
 .compare-head { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; font-weight: 650; color: var(--ink-soft); margin: 0; }
 .compare .stats { margin: 0.6rem 0 0; }
+/* A stack's brand mark in a compare heading. Sized in em so it tracks the
+   heading text, and flex-none so a long column title can't squash it. */
+.stack-logo { width: 1.15em; height: 1.15em; flex: none; display: block; }
 @media (max-width: 640px) { .compare { grid-template-columns: 1fr; } }
 .console { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 0.85rem 1rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; line-height: 1.75; overflow-x: auto; }
 .console-line { display: flex; align-items: center; gap: 0.7rem; white-space: nowrap; }

@@ -56,6 +56,19 @@ Each section is `{ "kind": "...", ... }`. Supported kinds:
 ```
 `tone` ∈ `go | you | srv | wip | done | err` (green / amber / blue / indigo / grey / red). `n` is a string (may be "#8", "CI", etc.). `err` is for genuine failure states (e.g. e2e tests failing) — an `err` stat tile also gets a red border + tinted background so red never hides in a tile row.
 
+### `compare` — the same tiles, side by side per subject
+```json
+{ "kind": "compare", "title": "Phoenix ⟷ MWServer", "columns": [
+  { "title": "Phoenix — client", "logo": "ts",
+    "items": [ { "n": "6605", "label": "Tests green", "tone": "go" } ] },
+  { "title": "MWServer — server", "logo": "swift", "items": [ … ] } ] }
+```
+Each column is a `stats` row under its own heading. Items take the same `n`/`label`/`tone`/`href` as `stats`.
+
+A column may carry `"logo"` — a brand mark for the stack it stands for, drawn inline (`swift | ts | js`). It replaces `"icon"` (an emoji) when both are set, and an unrecognised name falls back to the icon rather than leaving a gap. Marks are drawn, never fetched: a board served behind a gate that blocks outbound requests would render a remote image as a broken box.
+
+**Collectors must scope their writes to a column** (`lib.set_compare_tile(column=…)`, `lib.upsert_compare_tile`). An unscoped write matches the first tile with that label in *any* column, which is how one repo's number ends up rendered under another repo's heading.
+
 ### `banner` — a full-width note
 ```json
 { "kind": "banner", "text": "…", "tone": "none" }

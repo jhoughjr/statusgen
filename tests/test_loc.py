@@ -8,8 +8,11 @@ would publish a confident wrong number).
 
 Run:  python3 -m unittest discover -s tests   (from the statusgen root)
 """
+import contextlib
 import copy
+import io
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -196,6 +199,83 @@ class TestRenderNote(unittest.TestCase):
 
     def test_no_template_is_none(self):
         self.assertIsNone(loc.render_note(None, self.buckets, self.counts))
+
+
+class StalenessWarningTest(unittest.TestCase):
+    """A checkout nobody pulls keeps reporting last fortnight's code with
+    today's date on it — the exact rot this collector exists to end, one level
+    down. It went unnoticed on a repo that had drifted 66 commits."""
+
+    def git(self, repo, *args):
+        subprocess.run(["git", "-C", repo, *args], check=True,
+                       capture_output=True, text=True)
+
+    def clone_behind_by(self, n):
+        """A clone whose origin has moved on by `n` commits."""
+        src = tempfile.mkdtemp()
+        self.git(src, "init", "-q", "-b", "dev")
+        self.git(src, "config", "user.email", "t@example.test")
+        self.git(src, "config", "user.name", "t")
+        pathlib.Path(src, "a.txt").write_text("1\n")
+        self.git(src, "add", "-A")
+        self.git(src, "commit", "-qm", "first")
+
+        clone = tempfile.mkdtemp()
+        subprocess.run(["git", "clone", "-q", src, clone], check=True,
+                       capture_output=True)
+        for i in range(n):
+            pathlib.Path(src, "a.txt").write_text(f"{i + 2}\n")
+            self.git(src, "commit", "-qam", f"ahead {i}")
+        return clone
+
+    def warn(self, root):
+        loc._FRESHNESS_CHECKED.discard(str(root))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            loc.warn_if_stale(root)
+        return out.getvalue()
+
+    def test_a_behind_checkout_says_so_and_names_the_fix(self):
+        out = self.warn(self.clone_behind_by(3))
+        self.assertIn("3 commit(s) behind", out)
+        self.assertIn("ROOST_SOURCE_REPOS", out)
+
+    # Fetches rather than trusting the remote-tracking ref: on a clone nobody
+    # pulls that ref is stale too, and the comparison would report 0 behind —
+    # which is precisely why the real drift went unreported.
+    def test_it_does_not_trust_a_stale_remote_ref(self):
+        clone = self.clone_behind_by(2)
+        ahead = loc.lib.sh(["git", "-C", clone, "rev-list", "--count",
+                            "HEAD..origin/dev"])
+        self.assertEqual(ahead.stdout.strip(), "0")   # pre-fetch: looks current
+        self.assertIn("2 commit(s) behind", self.warn(clone))
+
+    def test_an_up_to_date_checkout_is_quiet(self):
+        self.assertEqual(self.warn(self.clone_behind_by(0)), "")
+
+    def test_a_plain_directory_is_not_a_repo_and_is_quiet(self):
+        self.assertEqual(self.warn(tempfile.mkdtemp()), "")
+
+    def test_a_repo_with_no_upstream_is_quiet(self):
+        src = tempfile.mkdtemp()
+        self.git(src, "init", "-q", "-b", "dev")
+        self.git(src, "config", "user.email", "t@example.test")
+        self.git(src, "config", "user.name", "t")
+        pathlib.Path(src, "a.txt").write_text("1\n")
+        self.git(src, "add", "-A")
+        self.git(src, "commit", "-qm", "only")
+        self.assertEqual(self.warn(src), "")
+
+    def test_each_root_is_only_checked_once_per_run(self):
+        clone = self.clone_behind_by(1)
+        loc._FRESHNESS_CHECKED.discard(str(clone))
+        first, second = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(first):
+            loc.warn_if_stale(clone)
+        with contextlib.redirect_stdout(second):
+            loc.warn_if_stale(clone)   # several buckets usually share one repo
+        self.assertIn("behind", first.getvalue())
+        self.assertEqual(second.getvalue(), "")
 
 
 if __name__ == "__main__":

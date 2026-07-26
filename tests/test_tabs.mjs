@@ -79,6 +79,9 @@ function makeSandbox({ hash = "" } = {}) {
     title: "",
     body: new StubNode("body"),
     createElement: (t) => new StubNode(t),
+    // Same node type for SVG: the renderer only ever setAttribute/appends on
+    // these, so one stub covers both namespaces.
+    createElementNS: (_ns, t) => new StubNode(t),
     createTextNode: (v) => new StubText(v),
     getElementById: () => null,
     addEventListener: () => {},
@@ -123,6 +126,17 @@ function board(extra = {}) {
     ],
     ...extra,
   };
+}
+
+// Renders a one-section compare board and hands back the tree to assert on.
+function compare(columns) {
+  const { api } = load();
+  const root = new StubNode("div");
+  api.renderBoard({
+    title: "b",
+    sections: [{ kind: "compare", title: "Compare", columns }],
+  }, root, null);
+  return root;
 }
 
 // Renders a one-section barchart board and hands back the tree to assert on.
@@ -346,6 +360,63 @@ const tests = {
   "an unknown fill falls back to a neutral rather than to nothing"() {
     const root = bars([{ label: "x", value: 1, fill: "chartreuse" }]);
     assert.equal(root.find("bar-fill")[0].style.background, "var(--ink-faint)");
+  },
+
+  // ---- compare column stack logos ----------------------------------------
+
+  "a column's logo renders as an inline svg, labelled for screen readers"() {
+    const root = compare([{ title: "MWServer — server", logo: "swift", items: [] }]);
+    const logo = root.find("stack-logo");
+    assert.equal(logo.length, 1);
+    assert.equal(logo[0].tagName, "SVG");
+    assert.equal(logo[0].getAttribute("aria-label"), "Swift");
+    assert.equal(logo[0].getAttribute("role"), "img");
+  },
+
+  "each known mark draws its own brand colour"() {
+    const fill = (name) => compare([{ title: "T", logo: name, items: [] }])
+      .find("stack-logo")[0].children[0].getAttribute("fill");
+    assert.equal(fill("swift"), "#F05138");
+    assert.equal(fill("ts"), "#3178C6");
+    assert.equal(fill("js"), "#F7DF1E");
+  },
+
+  "the lettered marks carry their letters"() {
+    const letters = (name) => compare([{ title: "T", logo: name, items: [] }])
+      .find("stack-logo")[0].text;
+    assert.equal(letters("ts"), "TS");
+    assert.equal(letters("js"), "JS");
+  },
+
+  // The board is served behind a gate that blocks outbound requests, so a mark
+  // that needed fetching would be a broken box for every reader.
+  "logos are self-contained — nothing is fetched"() {
+    const root = compare([{ title: "T", logo: "swift", items: [] }]);
+    const svg = root.find("stack-logo")[0];
+    const walk = (n) => [n, ...(n.children || []).flatMap(walk)];
+    for (const node of walk(svg)) {
+      assert.equal(node.getAttribute("src"), null);
+      assert.equal(node.getAttribute("href"), null);
+    }
+  },
+
+  "an unknown logo name falls back to the emoji icon, not to a gap"() {
+    const root = compare([{ title: "T", logo: "cobol", icon: "🖥️", items: [] }]);
+    assert.equal(root.find("stack-logo").length, 0);
+    assert.equal(root.find("sec-icon").length, 1);
+  },
+
+  "a logo replaces the emoji rather than sitting beside it"() {
+    const root = compare([{ title: "T", logo: "swift", icon: "🖥️", items: [] }]);
+    assert.equal(root.find("stack-logo").length, 1);
+    assert.equal(root.find("sec-icon").length, 0);
+  },
+
+  "a column with neither still renders its title and tiles"() {
+    const root = compare([{ title: "Plain", items: [{ n: "1", label: "x" }] }]);
+    assert.equal(root.find("stack-logo").length, 0);
+    assert.match(root.find("compare-head")[0].text, /Plain/);
+    assert.equal(root.find("stat").length > 0, true);
   },
 };
 

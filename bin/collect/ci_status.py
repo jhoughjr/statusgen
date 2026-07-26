@@ -53,14 +53,25 @@ def main():
     }
     board = lib.load_board(board_path)
     lib.upsert_section(board, "CI — recent runs", section, after_kind="compare")
-    # Wire the once-hardcoded "CI build" tile to the latest real CI outcome
-    # (the first non-watch console line — console_lines already filtered out
-    # in-progress and superseded-cancelled runs).
-    latest = next((l for l in lines if "cmd" not in l), None)
-    if latest:
+    # Wire each repo's "CI build" tile to that repo's latest real outcome (its
+    # first non-watch console line — console_lines already dropped in-progress
+    # and superseded-cancelled runs).
+    #
+    # Scoped per column on purpose. This used to set the first "CI build" tile
+    # in any column from the newest run across all repos, which on a two-repo
+    # board is one repo's build state shown under the other repo's heading;
+    # it only looked right because the busier repo happened to sort first.
+    for label in [lbl for _, lbl, _ in parse_sources(spec)]:
+        latest = next((l for l in lines
+                       if "cmd" not in l
+                       and str(l.get("text", "")).startswith(f"{label} ")), None)
+        if not latest:
+            continue
         ok = latest.get("status") == "success"
-        lib.set_compare_tile(board, "CI build", "✓" if ok else "✗",
-                             tone="go" if ok else "you")
+        lib.upsert_compare_tile(board, label, "CI build",
+                                "✓" if ok else "✗",
+                                tone="go" if ok else "you",
+                                href=latest.get("href"))
     lib.save_board(board_path, board)
     print(f"ci-status: {len(lines)} runs, latest {lines[0]['text']} = {lines[0]['status']}")
     return 0

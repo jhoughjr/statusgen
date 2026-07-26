@@ -405,9 +405,19 @@ def main():
 
     # Wire the once-hardcoded "Tests · N files" tile to the real test-file
     # count from the CI report (it used to read a stale "346 · 94 files").
+    #
+    # Scoped to this repo's own column. Unscoped, this wrote THIS repo's
+    # test-file count into whichever column happened to hold a "Tests ·" tile
+    # — on the clauffice board that was the server column, so the client's
+    # file count sat under the server's heading, and the relabel to "Test
+    # files" then stopped the prefix matching, freezing the wrong number in
+    # place. A column for a repo with no CI report is filled by its own
+    # collector — see swift_tests.py.
     tf = report.get("test_files")
     if tf is not None:
-        lib.set_compare_tile(board, "Tests ·", f"{int(tf):,}", label="Test files")
+        label = cfg.get("ROOST_STATS_LABEL") or slug.split("/")[-1]
+        lib.set_compare_tile(board, "Tests ·", f"{int(tf):,}", label="Test files",
+                             column=label)
 
     covd = report.get("coverage") or {}
     chart = patch_coverage_chart(board, covd, count) if covd else False

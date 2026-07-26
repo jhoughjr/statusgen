@@ -4,7 +4,10 @@
 
 Config (~/.roostrc):
   ROOST_CI_BOARD=clauffice                      # board dir under the status site
-  ROOST_CI_REPOS=owner/repo:Label:4,owner/other:Other:3
+  ROOST_CI_REPOS=owner/repo:Label:4[:logo],owner/other:Other:3[:logo]
+
+`logo` tags every one of that repo's rows with a stack mark (swift/ts/js), so
+one merged chronological feed still says which side each run belongs to.
 
 Non-fatal by contract: no config → skip; any failure → board untouched, exit 0.
 """
@@ -16,15 +19,20 @@ import lib
 
 
 def parse_sources(spec):
+    """"owner/repo[:Label[:limit[:logo]]], …" → [(repo, label, limit, logo)]."""
     out = []
     for part in spec.split(","):
-        bits = part.strip().split(":")
-        if len(bits) == 3:
-            out.append((bits[0], bits[1], int(bits[2])))
-        elif len(bits) == 2:
-            out.append((bits[0], bits[1], 4))
-        elif bits[0]:
-            out.append((bits[0], bits[0].split("/")[-1], 4))
+        bits = [b.strip() for b in part.strip().split(":")]
+        if not bits or not bits[0]:
+            continue
+        repo = bits[0]
+        label = bits[1] if len(bits) > 1 and bits[1] else repo.split("/")[-1]
+        try:
+            limit = int(bits[2]) if len(bits) > 2 and bits[2] else 4
+        except ValueError:
+            limit = 4
+        logo = bits[3] if len(bits) > 3 and bits[3] else None
+        out.append((repo, label, limit, logo))
     return out
 
 
@@ -61,7 +69,7 @@ def main():
     # in any column from the newest run across all repos, which on a two-repo
     # board is one repo's build state shown under the other repo's heading;
     # it only looked right because the busier repo happened to sort first.
-    for label in [lbl for _, lbl, _ in parse_sources(spec)]:
+    for _, label, _, _ in parse_sources(spec):
         latest = next((l for l in lines
                        if "cmd" not in l
                        and str(l.get("text", "")).startswith(f"{label} ")), None)

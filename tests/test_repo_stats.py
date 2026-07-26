@@ -100,8 +100,12 @@ class TestTypeSectionsTest(unittest.TestCase):
         self.assertEqual(e2e["n"], "11")
         self.assertEqual(e2e["tone"], "go")
 
-    def test_patch_upserts_both_sections(self):
-        board = {"sections": [{"kind": "compare", "columns": [{"items": []}]}]}
+    def test_patch_seeds_the_tiles_and_refreshes_a_donut_that_exists(self):
+        # The tiles self-seed; the donut only refreshes. It plots exactly the
+        # numbers the tiles state, so a board opts into the restatement rather
+        # than being unable to remove it — see TestMixSelfSeeding.
+        board = {"sections": [{"kind": "compare", "columns": [{"items": []}]},
+                              {"kind": "pie", "title": "Test mix", "slices": []}]}
         self.assertTrue(repo_stats.patch_test_types(board, TBT))
         titles = [s.get("title") for s in board["sections"]]
         self.assertIn("Tests by type", titles)
@@ -288,6 +292,39 @@ class E2ECarryForwardTest(unittest.TestCase):
         stats = next(s for s in board["sections"] if s.get("title") == "Tests by type")
         e2e = next(t for t in stats["items"] if t["label"] == "E2E")
         self.assertEqual(e2e["n"], "12")
+
+
+class TestMixSelfSeeding(unittest.TestCase):
+    """The donut plots exactly the numbers the tiles above it already state.
+    While it self-seeded, deleting it from the board was pointless — the next
+    push put it straight back."""
+
+    REPORT = {"unit": 6515, "integration": 90, "e2e": 19}
+
+    def board(self, with_pie):
+        secs = [{"kind": "compare", "columns": []}]
+        if with_pie:
+            secs.append({"kind": "pie", "title": "Test mix", "slices": []})
+        return {"sections": secs}
+
+    def titles(self, b):
+        return [s.get("title") for s in b["sections"]]
+
+    def test_the_tiles_still_seed_themselves(self):
+        b = self.board(with_pie=False)
+        self.assertTrue(repo_stats.patch_test_types(b, self.REPORT))
+        self.assertIn("Tests by type", self.titles(b))
+
+    def test_a_removed_donut_stays_removed(self):
+        b = self.board(with_pie=False)
+        repo_stats.patch_test_types(b, self.REPORT)
+        self.assertNotIn("Test mix", self.titles(b))
+
+    def test_a_board_that_keeps_the_donut_still_gets_it_refreshed(self):
+        b = self.board(with_pie=True)
+        repo_stats.patch_test_types(b, self.REPORT)
+        pie = next(s for s in b["sections"] if s.get("title") == "Test mix")
+        self.assertEqual([sl["value"] for sl in pie["slices"]], [6515, 90, 19])
 
 
 if __name__ == "__main__":

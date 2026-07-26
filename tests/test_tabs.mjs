@@ -412,6 +412,61 @@ const tests = {
     assert.equal(root.find("sec-icon").length, 0);
   },
 
+  "a section heading takes a stack mark"() {
+    const { api } = load();
+    const root = new StubNode("div");
+    api.renderBoard({ title: "b", sections: [
+      { kind: "stats", title: "Test results", logo: "ts",
+        items: [{ n: "6605", label: "Passed" }] },
+    ] }, root, null);
+    const logo = root.find("stack-logo");
+    assert.equal(logo.length, 1);
+    assert.equal(logo[0].getAttribute("aria-label"), "TypeScript");
+  },
+
+  "a heading logo replaces the emoji, and an unknown one falls back to it"() {
+    const heading = (extra) => {
+      const { api } = load();
+      const root = new StubNode("div");
+      api.renderBoard({ title: "b", sections: [
+        { kind: "stats", title: "T", icon: "\u2705", items: [], ...extra },
+      ] }, root, null);
+      return root;
+    };
+    assert.equal(heading({ logo: "swift" }).find("sec-icon").length, 0);
+    assert.equal(heading({ logo: "fortran" }).find("sec-icon").length, 1);
+    assert.equal(heading({}).find("sec-icon").length, 1);
+  },
+
+  // One merged, chronological feed only works if each row says whose run it is.
+  "console rows carry their own stack mark"() {
+    const { api } = load();
+    const root = new StubNode("div");
+    api.renderBoard({ title: "b", sections: [
+      { kind: "console", title: "CI", lines: [
+        { status: "success", text: "Phoenix \u00b7 dev", logo: "ts" },
+        { status: "failure", text: "MWServer \u00b7 dev", logo: "swift" },
+        { status: "success", text: "Unmarked \u00b7 dev" },
+      ] },
+    ] }, root, null);
+    assert.deepEqual(root.find("stack-logo").map((n) => n.getAttribute("aria-label")),
+      ["TypeScript", "Swift"]);
+    assert.equal(root.find("console-line").length, 3);   // unmarked row still renders
+  },
+
+  "a tab can be marked with a stack logo"() {
+    const { api } = load();
+    const root = new StubNode("div");
+    api.renderBoard({
+      title: "b",
+      tabs: [{ id: "client", label: "Client", logo: "ts", sections: ["T"] }],
+      sections: [{ kind: "stats", title: "T", items: [{ n: "1", label: "x" }] }],
+    }, root, null);
+    const marks = root.find("stack-logo");
+    assert.equal(marks.length, 1);
+    assert.equal(marks[0].getAttribute("aria-label"), "TypeScript");
+  },
+
   "a column with neither still renders its title and tiles"() {
     const root = compare([{ title: "Plain", items: [{ n: "1", label: "x" }] }]);
     assert.equal(root.find("stack-logo").length, 0);

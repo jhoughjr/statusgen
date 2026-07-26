@@ -184,9 +184,26 @@ def upsert_compare_tile(board, column, label, n, tone=None, href=None,
     return True
 
 
+# Presentation a human sets on the board that a collector has no opinion about.
+# A collector rebuilds its section from data every push, so anything hand-set
+# on it is otherwise erased within the hour — which makes "put a logo on that
+# section" an edit that silently doesn't stick.
+PRESERVED_SECTION_KEYS = ("logo",)
+
+
 def upsert_section(board, title, section, after_kind="compare"):
     """Replace the section with this title, or insert it after the first
-    section of `after_kind` (top if none)."""
+    section of `after_kind` (top if none).
+
+    Presentational keys the board already carried (PRESERVED_SECTION_KEYS) are
+    carried over when the incoming section doesn't set them — a collector owns
+    its numbers, not how the board chooses to label it."""
+    old = next((s for s in board.get("sections", [])
+                if s.get("title") == title), None)
+    if old:
+        for key in PRESERVED_SECTION_KEYS:
+            if key in old and key not in section:
+                section[key] = old[key]
     secs = [s for s in board.get("sections", []) if s.get("title") != title]
     i = next((idx for idx, s in enumerate(secs) if s.get("kind") == after_kind), -1)
     secs.insert(i + 1, section)
@@ -323,9 +340,16 @@ def fmt_duration(secs):
 
 
 def console_lines(sources):
-    """sources: [(repo, label, limit)] → statusgen console-section lines."""
+    """sources: [(repo, label, limit)] or [(repo, label, limit, logo)] →
+    statusgen console-section lines.
+
+    The 4-tuple form tags every row with a stack mark. One merged feed beats
+    two consoles for reading "what happened, in order" — but only once each row
+    says which stack it belongs to."""
     lines = []
-    for repo, label, limit in sources:
+    for source in sources:
+        repo, label, limit = source[0], source[1], source[2]
+        logo = source[3] if len(source) > 3 else None
         # Over-fetch: on a busy branch most recent runs are in-progress or
         # concurrency-cancelled, so pull well past `limit` to still land
         # `limit` real outcomes after CONSOLE_SKIP filtering.
@@ -348,6 +372,8 @@ def console_lines(sources):
                 "tone": TONE.get(state, "none"),
                 "text": f"{label} · {r.get('headBranch', '?')}",
             }
+            if logo:
+                line["logo"] = logo
             event = r.get("event", "")
             if event:
                 line["meta"] = f"· {event}"
@@ -363,8 +389,9 @@ def console_lines(sources):
         # copy-to-clipboard chip; with no run id, gh prompts with
         # in-progress runs — the "watch it live" gesture.
         if data:
-            lines.append({
-                "status": "watch", "tone": "none", "text": label,
-                "cmd": f"gh run watch -R {repo}",
-            })
+            watch = {"status": "watch", "tone": "none", "text": label,
+                     "cmd": f"gh run watch -R {repo}"}
+            if logo:
+                watch["logo"] = logo
+            lines.append(watch)
     return lines

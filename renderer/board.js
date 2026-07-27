@@ -235,10 +235,37 @@
     return wrap;
   }
 
-  // banner — a full-width note.
+  // banner — a full-width note (the board's summary). Not plain text: when the
+  // section carries a `links` map, #N references become PR links. The word
+  // before the ref picks the repo ("MWServer #168" → links.MWServer); a bare
+  // "#171" falls to links[""] — each value is a base URL the number appends to.
+  function linkifyRefs(text, links) {
+    const nodes = [];
+    const re = /(^|[\s(·—])((?:[A-Za-z][\w.-]*)\s+)?#(\d+)\b/g;
+    let last = 0, m;
+    while ((m = re.exec(text)) !== null) {
+      const prefixWord = m[2] ? m[2].trim() : "";
+      const base = prefixWord && links[prefixWord] != null ? links[prefixWord] : links[""];
+      // A prefixed ref whose word names an unknown repo (e.g. "ruling-#8")
+      // stays plain unless the bare default would claim it — only claim the
+      // number itself, never the word, so "MWServer #168" keeps "MWServer "
+      // as text and links just "#168".
+      if (base == null) continue;
+      const refStart = m.index + m[1].length + (m[2] ? m[2].length : 0);
+      nodes.push(text.slice(last, refStart));
+      nodes.push(el("a", { href: base + m[4], target: "_blank", rel: "noopener" }, `#${m[4]}`));
+      last = refStart + 1 + m[4].length;
+    }
+    nodes.push(text.slice(last));
+    return nodes;
+  }
+
   function renderBanner(section) {
     const tone = section.tone || "none";
-    const banner = el("div", { class: `banner ${tone}` }, section.text || "");
+    const content = section.links && typeof section.links === "object"
+      ? linkifyRefs(section.text || "", section.links)
+      : section.text || "";
+    const banner = el("div", { class: `banner ${tone}` }, content);
     return el("section", { class: "block" }, [banner]);
   }
 

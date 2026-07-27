@@ -253,8 +253,8 @@
       if (base == null) continue;
       const refStart = m.index + m[1].length + (m[2] ? m[2].length : 0);
       nodes.push(text.slice(last, refStart));
-      nodes.push(el("a", { href: base + m[4], target: "_blank", rel: "noopener" }, `#${m[4]}`));
-      last = refStart + 1 + m[4].length;
+      nodes.push(el("a", { href: base + m[3], target: "_blank", rel: "noopener" }, `#${m[3]}`));
+      last = refStart + 1 + m[3].length;
     }
     nodes.push(text.slice(last));
     return nodes;

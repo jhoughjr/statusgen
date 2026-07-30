@@ -27,9 +27,6 @@
     "invoicePermissions",
     "transferPermissions"
   ],
-  "Observation socket wrapper": [
-    "DocumentObservationStateDocument"
-  ],
   "Line fees": [
     "fee_lines",
     "fee_create"
@@ -62,5 +59,31 @@
   "Bulk receive / un_order": [
     "un_order",
     "undo_receive"
+  ],
+  "Consolidated socket \u2014 window lane": [
+    "WindowServerMessage",
+    "window.acquire"
+  ],
+  "Consolidated socket \u2014 chat lane": [
+    "ChatRosterEntry",
+    "chat.send"
+  ],
+  "Consolidated socket \u2014 connection lane": [
+    "ConnectionServerMessageHello",
+    "contractHash"
+  ],
+  "Server-pushed viewers presence": [
+    "WindowServerMessageViewers",
+    "window.viewers"
+  ],
+  "Conversation window kind": [
+    "ConversationWindow"
+  ],
+  "Contract pin (mwserver-models npm)": [
+    "CONTRACT_HASH",
+    "mwserver-models"
+  ],
+  "State wrapper (six kinds)": [
+    "DocumentObservationStateDocument"
   ]
 }

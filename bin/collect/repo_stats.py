@@ -36,6 +36,15 @@ an e2e report in (e2e is continue-on-error in CI, so its failures reach the
 report of a green run — the only red the report can carry). Provenance (CI
 branch@sha) rides in the section desc.
 
+When the report carries the additive `e2eSuites` array (one entry per e2e
+spec file — `{ name, file, passed, failed, skipped, flaky, duration_ms,
+total }`, folded in by Phoenix-Electron's scripts/ci/print-e2e-suites.mjs
+from Playwright's own JSON reporter), also self-seeds an "E2E suites" table
+right after "Test results": one row per suite, failing suites first, each
+flagged with the same pass/fail tones as the tiles above it — so a red run
+names its suite on the board, not just in the CI log. Old reports without the
+key leave the section, if a board carries one, showing its last-good run.
+
 Config (~/.roostrc):
   ROOST_STATS_BOARD=clauffice                          # board dir under the status site
   ROOST_STATS_GH_REPO=Austin-MacWorks/Phoenix-Electron # repo slug for gh
@@ -336,6 +345,84 @@ def patch_test_results(board, report):
     return True
 
 
+def build_e2e_suites_section(suites):
+    """From the report's `e2eSuites` array — one row per e2e spec file
+    (`{ name, file, passed, failed, skipped, flaky, duration_ms, total }`,
+    folded in by Phoenix-Electron's scripts/ci/print-e2e-suites.mjs from
+    Playwright's own JSON reporter) — build a table naming which suite failed,
+    not just that the aggregate E2E tiles in "Test results" went red.
+
+    Failing suites sort first (ties broken by name), matching the ✗-before-✓
+    ordering of the CI-log table `formatSuiteTable` prints from the same
+    data. Each row's Status pill reuses the board's pass/fail tone (err/go) —
+    the same idiom the E2E tiles already use, so a reader doesn't learn a
+    second color language for the same run.
+
+    Totals in the desc are summed from the suites themselves — the same
+    numbers `e2eSuites.mjs` derives from the same Playwright run that fills
+    `report["e2e"]`, so they can't drift from the aggregate tiles above.
+
+    Returns None for an empty/missing list (older reports don't carry the
+    key at all)."""
+    if not suites:
+        return None
+
+    def failed_of(s):
+        return int(s.get("failed") or 0)
+
+    ordered = sorted(suites, key=lambda s: (failed_of(s) == 0, -failed_of(s),
+                                            str(s.get("name", ""))))
+    rows = []
+    for s in ordered:
+        failed = failed_of(s)
+        passed = int(s.get("passed") or 0)
+        skipped = int(s.get("skipped") or 0)
+        flaky = int(s.get("flaky") or 0)
+        dur_s = (s.get("duration_ms") or 0) / 1000
+        rows.append([
+            str(s.get("name") or s.get("file") or "(unnamed)"),
+            str(passed), str(failed), str(skipped), str(flaky),
+            f"{dur_s:.1f}s",
+            {"pill": "FAIL" if failed else "PASS", "tone": "err" if failed else "go"},
+        ])
+
+    total_passed = sum(int(s.get("passed") or 0) for s in suites)
+    total_failed = sum(int(s.get("failed") or 0) for s in suites)
+    total_skipped = sum(int(s.get("skipped") or 0) for s in suites)
+    n_failing = sum(1 for s in suites if failed_of(s))
+
+    return {
+        "kind": "table", "icon": "🎭", "title": "E2E suites",
+        "count": f"{len(suites)} suite{'s' if len(suites) != 1 else ''}"
+                + (f" · {n_failing} failing" if n_failing else ""),
+        "desc": (f"{total_passed} passed, {total_failed} failed, "
+                f"{total_skipped} skipped across {len(suites)} spec file"
+                f"{'s' if len(suites) != 1 else ''}"),
+        "columns": ["Suite", "Pass", "Fail", "Skip", "Flaky", "Duration", "Status"],
+        "rows": rows,
+    }
+
+
+def patch_e2e_suites(board, suites):
+    """Upsert the "E2E suites" table right after "Test results" — main() calls
+    this between patch_test_types and patch_test_results, and the last of a
+    chain of after_kind="compare" upserts lands first, so the running order
+    ends up compare → Test results → E2E suites → Tests by type → Test mix.
+    A board that has never carried the section self-seeds it; one that
+    already does gets it replaced in place (order stays where a human or a
+    prior push left it).
+
+    A report without `e2eSuites` (or an empty one — the same "e2e didn't run
+    this build" case `patch_test_types`/`patch_test_results` handle) is a
+    no-op: the section, if present, keeps its last-good run rather than
+    disappearing or clearing to empty. Returns True when patched."""
+    sec = build_e2e_suites_section(suites)
+    if sec is None:
+        return False
+    lib.upsert_section(board, "E2E suites", sec, after_kind="compare")
+    return True
+
+
 def patch_coverage_chart(board, covd, count):
     """Patch a "Test Coverage" barchart from the report's `coverage` object:
     metric bars matched by label, note rebuilt with the zero-coverage file
@@ -433,13 +520,16 @@ def main():
     tbt = report.get("tests_by_type") or {}
     types = patch_test_types(board, tbt)
 
-    # After patch_test_types so this upsert lands first: compare → Test
-    # results → Tests by type → Test mix.
+    # Order of these three matters: each upserts after_kind="compare", and the
+    # LAST one lands first — so calling suites then results puts the final
+    # running order at compare → Test results → E2E suites → Tests by type →
+    # Test mix (types already ran above).
+    suites = patch_e2e_suites(board, report.get("e2eSuites") or [])
     results = patch_test_results(board, report)
 
-    if not (patched or chart or types or results):
+    if not (patched or chart or types or results or suites):
         print("repo-stats: nothing to patch — no compare, Test Coverage, "
-              "tests_by_type, or test results")
+              "tests_by_type, test results, or e2e suites")
         return 0
 
     # Optional second branch (e.g. main while the headline tracks dev):
@@ -499,6 +589,7 @@ def main():
     lib.save_board(board_path, board)
     print(f"repo-stats: tests={count} coverage={cov}% chart={'patched' if chart else 'n/a'} "
           f"types={'patched' if types else 'n/a'} results={'patched' if results else 'n/a'} "
+          f"suites={'patched' if suites else 'n/a'} "
           f"(CI {branch}@{sha}, run {run_id}, Δ+{delta} vs 7d-ago {base}){extra and ' |' + extra}"
           f"{' STALE vs HEAD ' + head if stale else ''}")
     return 0

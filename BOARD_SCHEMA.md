@@ -159,10 +159,21 @@ Quantitative values a per-project collector refreshes live come from the repo:
   "Tests by type") — collectors upsert these; hand edits will be overwritten.
 - `barchart` `series[].value` and the chart `note`.
 - `pie` `slices[].value` and the chart `note`.
+- A self-seeded `table` section titled "E2E suites" (`collect/repo_stats.py`,
+  from CI's `test-report.json` additive `e2eSuites` array): one row per e2e
+  spec file, failing suites sorted first and flagged with the same `err`/`go`
+  pill tones the "Test results" tiles above it use. Absent on reports without
+  the key — a board that never had one stays without it, and one that has it
+  keeps its last-good run rather than clearing.
 - Lines-of-code charts of either kind, rebuilt wholesale by `collect/loc.py`
   from `ROOST_LOC_CONFIG` (bucket = a set of paths/extensions to count). A
   bucket whose repo isn't on the pushing machine keeps its previous value
   rather than reporting 0 — two machines write this site and they don't have
   the same clones.
 
-Collectors patch these in place (match by section `kind` + `title`/label) and leave narrative sections (`table`, `cards`, `split`, `banner`) untouched. Tones/pills use the palette above; keep them stable so the renderer's CSS variables apply.
+Collectors patch these in place (match by section `kind` + `title`/label). A
+`table`/`cards`/`split`/`banner` section is narrative — hand-authored and left
+untouched — *unless* a collector explicitly self-seeds it by title, as above;
+an unclaimed section of any kind is always safe from a collector rewrite.
+Tones/pills use the palette above; keep them stable so the renderer's CSS
+variables apply.

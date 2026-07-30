@@ -327,5 +327,127 @@ class TestMixSelfSeeding(unittest.TestCase):
         self.assertEqual([sl["value"] for sl in pie["slices"]], [6515, 90, 19])
 
 
+SUITES = [
+    {"name": "smoke.spec.ts", "file": "e2e/smoke.spec.ts", "passed": 2, "failed": 1,
+     "skipped": 0, "flaky": 0, "total": 3, "duration_ms": 6200},
+    {"name": "cors-lock-header.spec.ts", "file": "e2e/cors-lock-header.spec.ts",
+     "passed": 2, "failed": 0, "skipped": 0, "flaky": 0, "total": 2, "duration_ms": 400},
+    {"name": "conversations.spec.ts", "file": "e2e/conversations.spec.ts",
+     "passed": 4, "failed": 0, "skipped": 1, "flaky": 1, "total": 6, "duration_ms": 9100},
+]
+
+
+class BuildE2eSuitesSectionTest(unittest.TestCase):
+    def test_empty_or_missing_returns_none(self):
+        self.assertIsNone(repo_stats.build_e2e_suites_section([]))
+        self.assertIsNone(repo_stats.build_e2e_suites_section(None))
+
+    def test_one_row_per_suite_with_the_right_shape(self):
+        sec = repo_stats.build_e2e_suites_section(SUITES)
+        self.assertEqual(sec["kind"], "table")
+        self.assertEqual(sec["title"], "E2E suites")
+        self.assertEqual(sec["columns"],
+                         ["Suite", "Pass", "Fail", "Skip", "Flaky", "Duration", "Status"])
+        self.assertEqual(len(sec["rows"]), 3)
+
+    def test_failing_suites_sort_first(self):
+        sec = repo_stats.build_e2e_suites_section(SUITES)
+        names = [r[0] for r in sec["rows"]]
+        self.assertEqual(names[0], "smoke.spec.ts")  # the only failing suite
+
+    def test_ties_among_passing_suites_break_by_name(self):
+        sec = repo_stats.build_e2e_suites_section(SUITES)
+        names = [r[0] for r in sec["rows"][1:]]
+        self.assertEqual(names, sorted(names))
+
+    def test_failing_row_gets_an_err_pill_passing_gets_go(self):
+        sec = repo_stats.build_e2e_suites_section(SUITES)
+        by_name = {r[0]: r[-1] for r in sec["rows"]}
+        self.assertEqual(by_name["smoke.spec.ts"], {"pill": "FAIL", "tone": "err"})
+        self.assertEqual(by_name["cors-lock-header.spec.ts"], {"pill": "PASS", "tone": "go"})
+
+    def test_row_counts_and_duration_match_the_suite(self):
+        sec = repo_stats.build_e2e_suites_section(SUITES)
+        row = next(r for r in sec["rows"] if r[0] == "conversations.spec.ts")
+        self.assertEqual(row, ["conversations.spec.ts", "4", "0", "1", "1", "9.1s",
+                               {"pill": "PASS", "tone": "go"}])
+
+    def test_count_names_how_many_suites_are_failing(self):
+        sec = repo_stats.build_e2e_suites_section(SUITES)
+        self.assertEqual(sec["count"], "3 suites · 1 failing")
+
+    def test_count_omits_failing_when_all_green(self):
+        green = [{**s, "failed": 0} for s in SUITES]
+        sec = repo_stats.build_e2e_suites_section(green)
+        self.assertEqual(sec["count"], "3 suites")
+
+    def test_desc_sums_match_the_suites_not_a_stale_aggregate(self):
+        sec = repo_stats.build_e2e_suites_section(SUITES)
+        self.assertIn("8 passed", sec["desc"])
+        self.assertIn("1 failed", sec["desc"])
+        self.assertIn("1 skipped", sec["desc"])
+        self.assertIn("3 spec files", sec["desc"])
+
+    def test_missing_fields_default_to_zero(self):
+        sec = repo_stats.build_e2e_suites_section([{"name": "bare.spec.ts"}])
+        self.assertEqual(sec["rows"][0],
+                         ["bare.spec.ts", "0", "0", "0", "0", "0.0s",
+                          {"pill": "PASS", "tone": "go"}])
+
+    def test_unnamed_suite_falls_back_to_its_file(self):
+        sec = repo_stats.build_e2e_suites_section([{"file": "e2e/x.spec.ts", "passed": 1}])
+        self.assertEqual(sec["rows"][0][0], "e2e/x.spec.ts")
+
+
+class PatchE2eSuitesTest(unittest.TestCase):
+    def test_seeds_the_section_after_compare(self):
+        board = {"sections": [{"kind": "compare", "columns": [{"items": []}]}]}
+        self.assertTrue(repo_stats.patch_e2e_suites(board, SUITES))
+        self.assertEqual(board["sections"][1]["title"], "E2E suites")
+
+    def test_replaces_in_place_on_a_second_run_rather_than_duplicating(self):
+        board = {"sections": [{"kind": "compare", "columns": [{"items": []}]},
+                              {"kind": "stats", "title": "Test results", "items": []}]}
+        repo_stats.patch_e2e_suites(board, SUITES)
+        repo_stats.patch_e2e_suites(board, [{**SUITES[0], "failed": 0}])
+        titles = [s.get("title") for s in board["sections"]]
+        self.assertEqual(titles.count("E2E suites"), 1)
+        sec = next(s for s in board["sections"] if s.get("title") == "E2E suites")
+        self.assertEqual(sec["count"], "1 suite")
+
+    def test_empty_suites_is_a_noop_and_leaves_a_prior_section_alone(self):
+        board = {"sections": [{"kind": "compare", "columns": [{"items": []}]}]}
+        self.assertFalse(repo_stats.patch_e2e_suites(board, []))
+        self.assertEqual(len(board["sections"]), 1)
+
+        seeded = {"sections": [{"kind": "compare", "columns": [{"items": []}]}]}
+        repo_stats.patch_e2e_suites(seeded, SUITES)
+        before = copy.deepcopy(seeded)
+        self.assertFalse(repo_stats.patch_e2e_suites(seeded, []))
+        self.assertEqual(seeded, before)  # last-good run kept, not cleared
+
+    def test_other_sections_never_touched(self):
+        other = {"kind": "banner", "text": "hello"}
+        board = {"sections": [{"kind": "compare", "columns": [{"items": []}]},
+                              copy.deepcopy(other)]}
+        repo_stats.patch_e2e_suites(board, SUITES)
+        self.assertIn(other, board["sections"])
+
+
+class MainOrderingTest(unittest.TestCase):
+    """The call order in main() — types, then suites, then results — is what
+    lands the final running order at compare -> Test results -> E2E suites ->
+    Tests by type. Pins that ordering directly rather than only through
+    main()'s gh-dependent path."""
+
+    def test_running_order_is_compare_results_suites_types(self):
+        board = {"sections": [{"kind": "compare", "columns": [{"items": []}]}]}
+        repo_stats.patch_test_types(board, TBT)
+        repo_stats.patch_e2e_suites(board, SUITES)
+        repo_stats.patch_test_results(board, REPORT)
+        titles = [s.get("title") for s in board["sections"]]
+        self.assertEqual(titles, [None, "Test results", "E2E suites", "Tests by type"])
+
+
 if __name__ == "__main__":
     unittest.main()

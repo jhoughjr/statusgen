@@ -150,6 +150,17 @@ function bars(series, extra = {}) {
   return root;
 }
 
+// Renders a one-section table board and hands back the tree to assert on.
+function table(columns, rows, extra = {}) {
+  const { api } = load();
+  const root = new StubNode("div");
+  api.renderBoard({
+    title: "b",
+    sections: [{ kind: "table", title: "T", columns, rows, ...extra }],
+  }, root, null);
+  return root;
+}
+
 const TABS = [
   { id: "now", label: "Now", sections: ["Test results"] },
   { id: "work", label: "Work", sections: ["Backlog"] },
@@ -472,6 +483,40 @@ const tests = {
     assert.equal(root.find("stack-logo").length, 0);
     assert.match(root.find("compare-head")[0].text, /Plain/);
     assert.equal(root.find("stat").length > 0, true);
+  },
+
+  // ---- table (e.g. the "E2E suites" per-suite tile from repo_stats.py) ----
+
+  "a table renders one row per suite, with a pill in the status cell"() {
+    const root = table(
+      ["Suite", "Pass", "Fail", "Skip", "Flaky", "Duration", "Status"],
+      [
+        ["smoke.spec.ts", "2", "1", "0", "0", "6.2s", { pill: "FAIL", tone: "err" }],
+        ["cors-lock-header.spec.ts", "2", "0", "0", "0", "0.4s", { pill: "PASS", tone: "go" }],
+      ]
+    );
+    const rows = root.find("card")[0].children[0].children[1].children; // tbody trs
+    assert.equal(rows.length, 2);
+    assert.deepEqual(root.find("pill").map((p) => p.text), ["FAIL", "PASS"]);
+  },
+
+  "a failing suite's pill reuses the err tone, a passing one go — same as stat tiles"() {
+    const root = table(
+      ["Suite", "Status"],
+      [["a.spec.ts", { pill: "FAIL", tone: "err" }], ["b.spec.ts", { pill: "PASS", tone: "go" }]]
+    );
+    const pills = root.find("pill");
+    assert.ok(pills[0].classList.contains("err"));
+    assert.ok(!pills[0].classList.contains("go"));
+    assert.ok(pills[1].classList.contains("go"));
+    assert.ok(!pills[1].classList.contains("err"));
+  },
+
+  "a plain string cell renders as text, not a pill"() {
+    const root = table(["Suite", "Duration"], [["smoke.spec.ts", "6.2s"]]);
+    assert.equal(root.find("pill").length, 0);
+    assert.match(root.find("card")[0].text, /smoke\.spec\.ts/);
+    assert.match(root.find("card")[0].text, /6\.2s/);
   },
 };
 

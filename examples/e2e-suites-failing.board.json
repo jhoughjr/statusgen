@@ -1,0 +1,121 @@
+{
+  "title": "Phoenix-Electron \u2014 E2E suites (example)",
+  "eyebrow": "statusgen example",
+  "stamp": "Updated 2026-07-29 09:00 PDT \u2014 dev@8bef207, 1 e2e suite failing",
+  "sections": [
+    {
+      "kind": "compare",
+      "title": "Phoenix \u2014 client",
+      "columns": [
+        {
+          "title": "Phoenix \u2014 client",
+          "items": [
+            {
+              "n": "6,591",
+              "label": "Tests green",
+              "tone": "go"
+            },
+            {
+              "n": "+37",
+              "label": "Added (7d)",
+              "tone": "go"
+            },
+            {
+              "n": "80%",
+              "label": "Coverage",
+              "tone": "go"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "stats",
+      "icon": "\u2705",
+      "title": "Test results",
+      "desc": "from CI dev@8bef207",
+      "count": "1 e2e failing",
+      "items": [
+        {
+          "n": "6,591",
+          "label": "Passed",
+          "tone": "go"
+        },
+        {
+          "n": "43",
+          "label": "Skipped / todo",
+          "tone": "done"
+        },
+        {
+          "n": "8/11",
+          "label": "E2E passed",
+          "tone": "err"
+        },
+        {
+          "n": "1",
+          "label": "E2E failed",
+          "tone": "err"
+        },
+        {
+          "n": "1",
+          "label": "E2E flaky",
+          "tone": "you"
+        }
+      ]
+    },
+    {
+      "kind": "table",
+      "icon": "\ud83c\udfad",
+      "title": "E2E suites",
+      "count": "3 suites \u00b7 1 failing",
+      "desc": "8 passed, 1 failed, 1 skipped across 3 spec files",
+      "columns": [
+        "Suite",
+        "Pass",
+        "Fail",
+        "Skip",
+        "Flaky",
+        "Duration",
+        "Status"
+      ],
+      "rows": [
+        [
+          "smoke.spec.ts",
+          "2",
+          "1",
+          "0",
+          "0",
+          "6.2s",
+          {
+            "pill": "FAIL",
+            "tone": "err"
+          }
+        ],
+        [
+          "conversations.spec.ts",
+          "4",
+          "0",
+          "1",
+          "1",
+          "9.1s",
+          {
+            "pill": "PASS",
+            "tone": "go"
+          }
+        ],
+        [
+          "cors-lock-header.spec.ts",
+          "2",
+          "0",
+          "0",
+          "0",
+          "0.4s",
+          {
+            "pill": "PASS",
+            "tone": "go"
+          }
+        ]
+      ]
+    }
+  ]
+}

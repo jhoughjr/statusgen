@@ -184,6 +184,11 @@
       ? el("a", { class: "sec-link", href: section.href }, title)
       : document.createTextNode(title));
     if (section.count) h2.append(el("span", { class: "count" }, section.count));
+    // Optional section.pill — same {pill|text, tone} shape as a table/cards
+    // cell — puts a single colored verdict on the heading itself, so a
+    // section's overall state (e.g. "all green" vs "2 failing") reads even
+    // when its rows are collapsed underneath (see buildBlock below).
+    if (section.pill) h2.append(renderPill(section.pill));
     if (section.desc) h2.append(el("span", { class: "desc" }, ` — ${section.desc}`));
     const asOf = buildAsOf(section.asOf);
     if (asOf) h2.append(asOf);
@@ -194,6 +199,27 @@
     const text = pill && (pill.pill ?? pill.text) || "";
     const tone = pill && pill.tone ? ` ${pill.tone}` : "";
     return el("span", { class: `pill${tone}` }, text);
+  }
+
+  // Wraps a section's heading + content in the standard block shell. A
+  // section carrying `collapsible: true` renders as a native
+  // <details>/<summary> instead of a plain heading — dependency-free
+  // disclosure (the browser's own widget, restyled; no framework, no click
+  // handler to wire up). The heading — title, count, an optional status
+  // `pill`, desc — becomes the <summary> line, so a collapsed section states
+  // exactly what an expanded one does; only the rows underneath are hidden,
+  // never the signal. Starts open unless the section sets `collapsed: true`.
+  function buildBlock(section, content) {
+    const heading = buildHeading(section);
+    if (!section.collapsible) {
+      return el("section", { class: "block" }, [heading, content]);
+    }
+    const details = el(
+      "details",
+      { class: "collapsible", open: section.collapsed ? null : "" },
+      [el("summary", null, heading), content]
+    );
+    return el("section", { class: "block" }, details);
   }
 
   // buildStatTile — one number tile, shared by `stats` rows and `compare`
@@ -383,7 +409,9 @@
     return el("section", { class: "block" }, [buildHeading(section), card]);
   }
 
-  // table — columns + rows; a cell is a string or { pill, tone }.
+  // table — columns + rows; a cell is a string or { pill, tone }. Supports
+  // `collapsible`/`collapsed` (see buildBlock) — e.g. repo_stats.py's "E2E
+  // suites" table starts collapsed on a green run, open on a red one.
   function renderTable(section) {
     const columns = Array.isArray(section.columns) ? section.columns : [];
     const rows = Array.isArray(section.rows) ? section.rows : [];
@@ -410,7 +438,7 @@
 
     const table = el("table", null, [thead, tbody]);
     const cardWrap = el("div", { class: "card tablewrap" }, table);
-    return el("section", { class: "block" }, [buildHeading(section), cardWrap]);
+    return buildBlock(section, cardWrap);
   }
 
   // cards — id / question / note / pill rows.

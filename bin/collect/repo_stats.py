@@ -45,6 +45,13 @@ flagged with the same pass/fail tones as the tiles above it — so a red run
 names its suite on the board, not just in the CI log. Old reports without the
 key leave the section, if a board carries one, showing its last-good run.
 
+The table is collapsible (board.js's `<details>`/`<summary>` support) and
+defaults collapsed on an all-green run, auto-expanded when any suite failed
+— collapsed-green, expanded-red. Its heading (title/count/pill/desc) is the
+`<summary>` line, so the verdict — "all green" or "N suites failing", plus
+the passed/failed/skipped/flaky breakdown — reads whether or not it's
+expanded; only the per-suite rows are hidden by the collapse.
+
 Config (~/.roostrc):
   ROOST_STATS_BOARD=clauffice                          # board dir under the status site
   ROOST_STATS_GH_REPO=Austin-MacWorks/Phoenix-Electron # repo slug for gh
@@ -358,8 +365,20 @@ def build_e2e_suites_section(suites):
     the same idiom the E2E tiles already use, so a reader doesn't learn a
     second color language for the same run.
 
-    Totals in the desc are summed from the suites themselves — the same
-    numbers `e2eSuites.mjs` derives from the same Playwright run that fills
+    The section is `collapsible`, and starts `collapsed` when every suite is
+    green (nothing to look at) and expanded when any suite failed (the point
+    of the table is naming what's red, so a red run shouldn't need a click to
+    see it) — collapsed-green, expanded-red. The heading carries the verdict
+    either way it's shown: `count` is the plain suite tally, `pill` is the
+    one-glance go/err verdict (mirrors "Test results"'s own "all green" /
+    "N e2e failing" wording), and `desc` is the passed/failed/skipped/flaky
+    breakdown — all three visible in the <summary> line even collapsed, per
+    buildBlock() in board.js. `desc`'s "N failed" is a TEST count, same
+    number "Test results"' "E2E failed" tile shows; `pill`'s "N failing" is a
+    SUITE count — deliberately different words for different units.
+
+    Totals are summed from the suites themselves — the same numbers
+    `e2eSuites.mjs` derives from the same Playwright run that fills
     `report["e2e"]`, so they can't drift from the aggregate tiles above.
 
     Returns None for an empty/missing list (older reports don't carry the
@@ -389,15 +408,24 @@ def build_e2e_suites_section(suites):
     total_passed = sum(int(s.get("passed") or 0) for s in suites)
     total_failed = sum(int(s.get("failed") or 0) for s in suites)
     total_skipped = sum(int(s.get("skipped") or 0) for s in suites)
+    total_flaky = sum(int(s.get("flaky") or 0) for s in suites)
     n_failing = sum(1 for s in suites if failed_of(s))
+
+    desc_bits = [f"{total_passed} passed", f"{total_failed} failed"]
+    if total_skipped:
+        desc_bits.append(f"{total_skipped} skipped")
+    if total_flaky:
+        desc_bits.append(f"{total_flaky} flaky")
 
     return {
         "kind": "table", "icon": "🎭", "title": "E2E suites",
-        "count": f"{len(suites)} suite{'s' if len(suites) != 1 else ''}"
-                + (f" · {n_failing} failing" if n_failing else ""),
-        "desc": (f"{total_passed} passed, {total_failed} failed, "
-                f"{total_skipped} skipped across {len(suites)} spec file"
-                f"{'s' if len(suites) != 1 else ''}"),
+        "collapsible": True,
+        "collapsed": n_failing == 0,
+        "pill": {"pill": "all green" if not n_failing else
+                 f"{n_failing} suite{'s' if n_failing != 1 else ''} failing",
+                 "tone": "go" if not n_failing else "err"},
+        "count": f"{len(suites)} suite{'s' if len(suites) != 1 else ''}",
+        "desc": " · ".join(desc_bits),
         "columns": ["Suite", "Pass", "Fail", "Skip", "Flaky", "Duration", "Status"],
         "rows": rows,
     }

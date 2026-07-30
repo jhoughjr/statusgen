@@ -1,7 +1,7 @@
 {
   "title": "Phoenix-Electron \u2014 E2E suites (example)",
   "eyebrow": "statusgen example",
-  "stamp": "Updated 2026-07-29 09:00 PDT \u2014 dev@8bef207, 1 e2e suite failing",
+  "stamp": "Updated 2026-07-29 09:00 PDT \u2014 dev@8bef207, 1 e2e suite failing (table starts expanded)",
   "sections": [
     {
       "kind": "compare",
@@ -67,8 +67,14 @@
       "kind": "table",
       "icon": "\ud83c\udfad",
       "title": "E2E suites",
-      "count": "3 suites \u00b7 1 failing",
-      "desc": "8 passed, 1 failed, 1 skipped across 3 spec files",
+      "collapsible": true,
+      "collapsed": false,
+      "pill": {
+        "pill": "1 suite failing",
+        "tone": "err"
+      },
+      "count": "3 suites",
+      "desc": "8 passed \u00b7 1 failed \u00b7 1 skipped \u00b7 1 flaky",
       "columns": [
         "Suite",
         "Pass",

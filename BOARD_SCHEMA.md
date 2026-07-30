@@ -27,7 +27,9 @@ The renderer reads `board.json`, iterates `sections` in order, and renders each 
 
 **Tile links** — a `stats` item or a `compare` column item may add `"href"`, which makes the whole tile a link (rendered as an `<a>`, so it keyboard-focuses and middle-clicks normally). A number on a board is the start of a question — "6,591 passed, which ones?" — and the tile is where the reader's eye already is. `collect/test_detail.py` uses this to point the test tiles at a generated `<slug>/tests/` page and the CI-build tile at the run itself.
 
-**Section headings** — any titled section may add `"icon"` (leading emoji), `"count"` (mono badge after the title), `"desc"` (grey suffix), and `"href"` (turns the title into a link, e.g. to a detail page). These are generic across kinds.
+**Section headings** — any titled section may add `"icon"` (leading emoji), `"count"` (mono badge after the title), `"pill"` (a colored verdict badge — same `{pill, tone}` shape as a table/cards cell, e.g. `{"pill": "all green", "tone": "go"}`), `"desc"` (grey suffix), and `"href"` (turns the title into a link, e.g. to a detail page). These are generic across kinds.
+
+**Collapsible sections** — any section may add `"collapsible": true` to render inside a native `<details>`/`<summary>` disclosure instead of a plain heading (dependency-free — the browser's own widget, restyled). `"collapsed": true` starts it closed; omitted or `false` starts it open. The heading (title/count/pill/desc, above) becomes the `<summary>` line, so a collapsed section states its verdict just as plainly as an expanded one — only the rows underneath are hidden. `collect/repo_stats.py`'s "E2E suites" table uses this: collapsed by default on an all-green run, auto-expanded when any suite failed (collapsed-green, expanded-red) — a clean run doesn't need the click, a red one shouldn't need one either.
 
 **Stack marks (`logo`)** — `swift | ts | js`, an inline brand mark drawn (never fetched) for the stack a thing belongs to. Valid on a **section heading**, a **compare column**, a **tab**, and a single **console line**. Everywhere it appears it takes the place of `icon` rather than sitting beside it, and an unrecognised name falls back to the icon.
 
@@ -164,7 +166,9 @@ Quantitative values a per-project collector refreshes live come from the repo:
   spec file, failing suites sorted first and flagged with the same `err`/`go`
   pill tones the "Test results" tiles above it use. Absent on reports without
   the key — a board that never had one stays without it, and one that has it
-  keeps its last-good run rather than clearing.
+  keeps its last-good run rather than clearing. Collapsible (see above):
+  collapsed by default when every suite is green, auto-expanded when any
+  suite failed.
 - Lines-of-code charts of either kind, rebuilt wholesale by `collect/loc.py`
   from `ROOST_LOC_CONFIG` (bucket = a set of paths/extensions to count). A
   bucket whose repo isn't on the pushing machine keeps its previous value

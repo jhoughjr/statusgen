@@ -518,6 +518,60 @@ const tests = {
     assert.match(root.find("card")[0].text, /smoke\.spec\.ts/);
     assert.match(root.find("card")[0].text, /6\.2s/);
   },
+
+  // ---- heading pill + collapsible sections (per-suite e2e tile, #32 follow-up) --
+
+  "a section heading pill renders with its own tone, alongside count"() {
+    const root = table(["Suite"], [], {
+      count: "3 suites", pill: { pill: "all green", tone: "go" },
+    });
+    const pills = root.find("pill");
+    assert.equal(pills.length, 1);
+    assert.equal(pills[0].text, "all green");
+    assert.ok(pills[0].classList.contains("go"));
+  },
+
+  "collapsible:true wraps the section in a native <details>"() {
+    const root = table(["Suite"], [["a", "PASS"]], { collapsible: true, collapsed: true });
+    const details = root.find("collapsible");
+    assert.equal(details.length, 1);
+    assert.equal(details[0].tagName, "DETAILS");
+  },
+
+  "a non-collapsible table renders no <details> wrapper"() {
+    const root = table(["Suite"], [["a", "PASS"]]);
+    assert.equal(root.find("collapsible").length, 0);
+  },
+
+  "collapsed:true starts closed (no open attribute)"() {
+    const root = table(["Suite"], [["a", "PASS"]], { collapsible: true, collapsed: true });
+    assert.equal(root.find("collapsible")[0].getAttribute("open"), null);
+  },
+
+  "collapsed:false (or omitted) starts open — the auto-expand-on-red default"() {
+    const openRoot = table(["Suite"], [["a", "PASS"]], { collapsible: true, collapsed: false });
+    assert.notEqual(openRoot.find("collapsible")[0].getAttribute("open"), null);
+    const omittedRoot = table(["Suite"], [["a", "PASS"]], { collapsible: true });
+    assert.notEqual(omittedRoot.find("collapsible")[0].getAttribute("open"), null);
+  },
+
+  "the <summary> carries the full heading — title, count, pill — collapsed or not"() {
+    const root = table(["Suite"], [["smoke.spec.ts", { pill: "FAIL", tone: "err" }]], {
+      title: "E2E suites", count: "3 suites",
+      pill: { pill: "1 suite failing", tone: "err" },
+      collapsible: true, collapsed: true,
+    });
+    const details = root.find("collapsible")[0];
+    const summary = details.children.find((c) => c.tagName === "SUMMARY");
+    assert.ok(summary, "expected a <summary> child of <details>");
+    assert.match(summary.text, /E2E suites/);
+    assert.match(summary.text, /3 suites/);
+    assert.match(summary.text, /1 suite failing/);
+    // The row content (the FAIL pill inside the table) lives in <details> too
+    // — collapsing hides it visually via [open], not by removing it from the
+    // DOM, so a reader who does expand it sees real rows, not a re-fetch.
+    assert.ok(details.text.includes("smoke.spec.ts"));
+  },
 };
 
 let failed = 0;

@@ -372,21 +372,24 @@ class BuildE2eSuitesSectionTest(unittest.TestCase):
         self.assertEqual(row, ["conversations.spec.ts", "4", "0", "1", "1", "9.1s",
                                {"pill": "PASS", "tone": "go"}])
 
-    def test_count_names_how_many_suites_are_failing(self):
+    def test_count_is_the_plain_suite_tally(self):
+        # The verdict lives on `pill` now, not folded into `count` — see
+        # PillAndCollapseTest below.
         sec = repo_stats.build_e2e_suites_section(SUITES)
-        self.assertEqual(sec["count"], "3 suites · 1 failing")
-
-    def test_count_omits_failing_when_all_green(self):
-        green = [{**s, "failed": 0} for s in SUITES]
-        sec = repo_stats.build_e2e_suites_section(green)
         self.assertEqual(sec["count"], "3 suites")
+
+    def test_count_singular(self):
+        sec = repo_stats.build_e2e_suites_section([SUITES[0]])
+        self.assertEqual(sec["count"], "1 suite")
 
     def test_desc_sums_match_the_suites_not_a_stale_aggregate(self):
         sec = repo_stats.build_e2e_suites_section(SUITES)
-        self.assertIn("8 passed", sec["desc"])
-        self.assertIn("1 failed", sec["desc"])
-        self.assertIn("1 skipped", sec["desc"])
-        self.assertIn("3 spec files", sec["desc"])
+        self.assertEqual(sec["desc"], "8 passed · 1 failed · 1 skipped · 1 flaky")
+
+    def test_desc_omits_zero_skipped_and_flaky(self):
+        clean = [{**s, "skipped": 0, "flaky": 0} for s in SUITES]
+        sec = repo_stats.build_e2e_suites_section(clean)
+        self.assertEqual(sec["desc"], "8 passed · 1 failed")
 
     def test_missing_fields_default_to_zero(self):
         sec = repo_stats.build_e2e_suites_section([{"name": "bare.spec.ts"}])
@@ -397,6 +400,41 @@ class BuildE2eSuitesSectionTest(unittest.TestCase):
     def test_unnamed_suite_falls_back_to_its_file(self):
         sec = repo_stats.build_e2e_suites_section([{"file": "e2e/x.spec.ts", "passed": 1}])
         self.assertEqual(sec["rows"][0][0], "e2e/x.spec.ts")
+
+
+class E2eSuitesCollapseAndPillTest(unittest.TestCase):
+    """Follow-up from Jimmy on #32: the table collapses by default, and stays
+    informative collapsed. Pinning the collapsed-green / expanded-red default
+    and the heading's pill verdict, both of which board.js's buildBlock()
+    reads straight off this section."""
+
+    def test_section_is_always_collapsible(self):
+        self.assertTrue(repo_stats.build_e2e_suites_section(SUITES)["collapsible"])
+
+    def test_collapsed_by_default_when_every_suite_is_green(self):
+        green = [{**s, "failed": 0} for s in SUITES]
+        sec = repo_stats.build_e2e_suites_section(green)
+        self.assertTrue(sec["collapsed"])
+        self.assertEqual(sec["pill"], {"pill": "all green", "tone": "go"})
+
+    def test_auto_expanded_when_any_suite_is_failing(self):
+        sec = repo_stats.build_e2e_suites_section(SUITES)  # smoke.spec.ts fails
+        self.assertFalse(sec["collapsed"])
+        self.assertEqual(sec["pill"], {"pill": "1 suite failing", "tone": "err"})
+
+    def test_pill_pluralizes_multiple_failing_suites(self):
+        two_red = [{**s, "failed": 1} for s in SUITES]
+        sec = repo_stats.build_e2e_suites_section(two_red)
+        self.assertEqual(sec["pill"]["pill"], "3 suites failing")
+        self.assertEqual(sec["pill"]["tone"], "err")
+
+    def test_pills_desc_failed_count_is_tests_not_suites(self):
+        # SUITES: one failing suite, but that suite's own `failed` could be >1
+        # test — the pill (suites) and desc (tests) must not be conflated.
+        multi_fail = [{**SUITES[0], "failed": 3}, SUITES[1], SUITES[2]]
+        sec = repo_stats.build_e2e_suites_section(multi_fail)
+        self.assertEqual(sec["pill"]["pill"], "1 suite failing")
+        self.assertIn("3 failed", sec["desc"])
 
 
 class PatchE2eSuitesTest(unittest.TestCase):

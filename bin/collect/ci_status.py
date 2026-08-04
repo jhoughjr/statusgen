@@ -36,6 +36,37 @@ def parse_sources(spec):
     return out
 
 
+def _last_green_tile(board, repo, label):
+    """A "Last green" tile: the commit this repo was last successful at, and how
+    long ago — shown whether the current build is green or red.
+
+    The "CI build" tile above only says ✓/✗ right now. That is the one moment it
+    is least useful: when a build goes red, the board stops saying anything about
+    what still worked, so a red run reads as "everything is unknown" rather than
+    "here is the last thing that wasn't". Worse, a repo whose tiles only refresh
+    on green keeps showing the previous green's numbers with nothing admitting
+    they are stale.
+
+    Derived from Actions history rather than any runner-local state, so it is
+    correct for every repo on the board, survives a runner rebuild, and does not
+    depend on a particular CI script having written a file somewhere.
+    """
+    runs = lib.gh_runs(repo, 40)
+    if not runs:
+        return
+    green = next((r for r in runs if r.get("conclusion") == "success"), None)
+    if green is None:
+        # Say so rather than leaving a stale tile claiming an old green.
+        lib.upsert_compare_tile(board, label, "Last green", "none recent",
+                                tone="you", href=None)
+        return
+    sha = str(green.get("headSha", ""))[:7] or "?"
+    age = lib.fmt_age(green.get("createdAt"))
+    lib.upsert_compare_tile(board, label, "Last green",
+                            f"{sha} · {age}" if age else sha,
+                            tone="go", href=green.get("url"))
+
+
 def main():
     cfg = lib.read_roostrc()
     spec = cfg.get("ROOST_CI_REPOS", "")
@@ -48,7 +79,8 @@ def main():
         print(f"ci-status: {board_path} not found — skipping")
         return 0
 
-    lines = lib.console_lines(parse_sources(spec))
+    sources = parse_sources(spec)
+    lines = lib.console_lines(sources)
     if not lines:
         print("ci-status: no CI data (gh unavailable?) — leaving board as-is")
         return 0
@@ -69,7 +101,7 @@ def main():
     # in any column from the newest run across all repos, which on a two-repo
     # board is one repo's build state shown under the other repo's heading;
     # it only looked right because the busier repo happened to sort first.
-    for _, label, _, _ in parse_sources(spec):
+    for repo, label, _, _ in sources:
         latest = next((l for l in lines
                        if "cmd" not in l
                        and str(l.get("text", "")).startswith(f"{label} ")), None)
@@ -80,6 +112,7 @@ def main():
                                 "✓" if ok else "✗",
                                 tone="go" if ok else "you",
                                 href=latest.get("href"))
+        _last_green_tile(board, repo, label)
     lib.save_board(board_path, board)
     print(f"ci-status: {len(lines)} runs, latest {lines[0]['text']} = {lines[0]['status']}")
     return 0

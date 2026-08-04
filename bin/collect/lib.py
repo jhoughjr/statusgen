@@ -272,8 +272,11 @@ CONSOLE_SKIP = {"in_progress", "queued", "waiting", "requested",
 
 
 def gh_runs(repo, limit):
+    # headSha is here for the "Last green" tile (ci_status.py), which names the
+    # commit a repo was last green at. Extra fields are ignored by every other
+    # caller, so this stays a superset rather than a second fetch.
     r = sh(["gh", "run", "list", "--repo", repo, "--limit", str(limit),
-            "--json", "status,conclusion,headBranch,event,createdAt,url"])
+            "--json", "status,conclusion,headBranch,event,createdAt,url,headSha"])
     if r.returncode != 0:
         return None
     try:
@@ -347,6 +350,35 @@ def fmt_duration(secs):
         return f"{m}m" if s == 0 else f"{m}m{s:02d}s"
     h, rem = divmod(secs, 3600)
     return f"{h}h{rem // 60:02d}m"
+
+
+def fmt_age(iso, now=None):
+    """UTC ISO-8601 stamp → a compact age: "just now", "9m ago", "3h ago",
+    "2d ago". None when unparseable, so callers can omit rather than print a
+    misleading zero.
+
+    Board tiles carry a plain string (no `ts` the renderer could localize, the
+    way console lines do), so the age is baked here. It is relative, which is
+    what makes it safe to bake — unlike an absolute time, it reads correctly in
+    every timezone."""
+    import datetime
+    if not iso:
+        return None
+    try:
+        then = datetime.datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    secs = (now - then).total_seconds()
+    if secs < 0:
+        return "just now"
+    if secs < 60:
+        return "just now"
+    if secs < 3600:
+        return f"{int(secs // 60)}m ago"
+    if secs < 86400:
+        return f"{int(secs // 3600)}h ago"
+    return f"{int(secs // 86400)}d ago"
 
 
 def console_lines(sources):

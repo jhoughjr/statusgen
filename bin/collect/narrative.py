@@ -8,10 +8,18 @@ marker line. Above the marker: hand-written prose, preserved verbatim. From
 the marker down: a regenerated, timestamp-led timeline of the PRs merged into
 the base branch — one line per PR, oldest first, local time:
 
-    <hand-written lede — never touched>
+    <hand-written lede — never touched, see the length rule below>
     ── shipped · auto-refreshed · times CDT ──
     07-23 10:16 · #166 · SRO price edit contract, partial-code composer search
     07-23 11:53 · #168 · land the stranded confirm-sweep spec fixes
+
+"Preserved verbatim" is a promise about ownership, not an endorsement of any
+length: nothing here trims the lede, so nothing here stops it becoming a wall.
+That guard lives in bin/validate-board.py (banner_warnings) and the rule it
+enforces is written out under `banner` in BOARD_SCHEMA.md — a lede is <=700
+chars and <=5 sentences, and the detail belongs in a `cards` section where each
+point gets a headline and a pill. Whoever writes the prose above the marker,
+human or agent, should read that first.
 
 No marker in the banner yet? The block is appended below the existing text.
 The window is the last ROOST_NARRATIVE_DAYS days; when that window is empty

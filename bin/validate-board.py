@@ -7,6 +7,51 @@ import json, re, sys
 KINDS = {"stats", "banner", "barchart", "pie", "table", "cards", "split",
          "compare", "console", "live-console"}
 ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# A banner renders as ONE flat <div> — no headings, no rows, no pills. It is the
+# only kind with nowhere for a reader's eye to land, so it is the only kind that
+# can silently become a wall. Everything a long banner wants to say is already
+# expressible as a `cards` section (per-item headline + note + pill), which is
+# scannable by construction.
+#
+# `narrative.py` preserves the prose above the `── shipped ·` marker verbatim, so
+# nothing downstream trims it and nothing warns. These are the guard rails: a
+# warning, never a hard fail — a board must always be able to deploy.
+BANNER_MARKER = "── shipped ·"
+BANNER_MAX_CHARS = 700       # ~a tight paragraph: a lede, not a write-up
+BANNER_MAX_SENTENCES = 5
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def banner_prose(text):
+    """The hand-written part of a banner — everything above the machine-written
+    shipped block, which is line-broken already and scans fine."""
+    return str(text or "").split(BANNER_MARKER)[0].strip()
+
+
+def banner_warnings(text):
+    """Structural complaints about one banner's prose. Empty when it reads as a
+    lede. Each is phrased as the fix, not the violation — the reader is usually
+    an agent about to rewrite it."""
+    prose = banner_prose(text)
+    if not prose:
+        return []
+    out = []
+    paragraphs = [p for p in prose.split("\n\n") if p.strip()]
+    sentences = [s for s in SENTENCE_END.split(prose) if s.strip()]
+    if len(prose) > BANNER_MAX_CHARS:
+        out.append(
+            f"banner prose is {len(prose)} chars (guide: {BANNER_MAX_CHARS}) — keep the lede, "
+            f"move the detail into a `cards` section so each point gets a headline and a pill")
+    if len(sentences) > BANNER_MAX_SENTENCES:
+        out.append(
+            f"banner prose is {len(sentences)} sentences (guide: {BANNER_MAX_SENTENCES}) — "
+            f"one banner is one flat <div>; a reader has no way to scan past sentence three")
+    if len(prose) > BANNER_MAX_CHARS and len(paragraphs) == 1:
+        out.append(
+            "banner prose has no paragraph break — the renderer honours \\n\\n "
+            "(white-space: pre-line), so nothing but the text itself is stopping it")
+    return out
 fail = 0
 for path in sys.argv[1:]:
     try:
@@ -22,6 +67,9 @@ for path in sys.argv[1:]:
             if "asOf" in s:
                 assert isinstance(s["asOf"], str) and ISO_DATE.match(s["asOf"]), \
                     f"section {i}: asOf must be YYYY-MM-DD"
+            if k == "banner":
+                for w in banner_warnings(s.get("text")):
+                    print(f"  ! {path}: section {i}: {w}")
             if k == "stats":
                 for it in s.get("items", []):
                     # `ts` (a UTC timestamp the renderer localizes) is an

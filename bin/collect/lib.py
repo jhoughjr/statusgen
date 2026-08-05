@@ -387,8 +387,21 @@ def console_lines(sources):
 
     The 4-tuple form tags every row with a stack mark. One merged feed beats
     two consoles for reading "what happened, in order" — but only once each row
-    says which stack it belongs to."""
+    says which stack it belongs to.
+
+    "In order" is load-bearing and used not to be true. Rows were appended one
+    repo at a time, so the feed read as per-repo blocks: a server build from an
+    hour ago sat BELOW a client build from yesterday, purely because the client
+    repo was configured first. Read top-down — which is the only way anyone
+    reads a feed titled "recent runs" — that looks like this morning's builds
+    never happened. Runs are now interleaved by timestamp across every source.
+
+    The per-repo `limit` still applies before merging: it means "the last N from
+    this repo", so a busy repo cannot crowd a quiet one out of the feed
+    entirely. The watch chips stay at the end, after the runs, since they are
+    controls rather than events."""
     lines = []
+    watches = []
     for source in sources:
         repo, label, limit = source[0], source[1], source[2]
         logo = source[3] if len(source) > 3 else None
@@ -435,5 +448,8 @@ def console_lines(sources):
                      "cmd": f"gh run watch -R {repo}"}
             if logo:
                 watch["logo"] = logo
-            lines.append(watch)
-    return lines
+            watches.append(watch)
+    # Newest first, across repos. A row with no timestamp sorts last rather
+    # than crashing the sort or silently jumping to the top.
+    lines.sort(key=lambda l: l.get("ts") or "", reverse=True)
+    return lines + watches

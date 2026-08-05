@@ -71,8 +71,49 @@ class ConsoleLinesTest(unittest.TestCase):
     def test_each_source_keeps_its_own_mark_in_one_merged_feed(self):
         lib.gh_runs = lambda repo, limit: [dict(RUN)]
         lines = lib.console_lines([("o/a", "A", 1, "ts"), ("o/b", "B", 1, "swift")])
+        # Runs first (interleaved by time), then the watch chips. Both runs
+        # share a timestamp here, so the sort is stable and A leads.
         self.assertEqual([l.get("logo") for l in lines],
-                         ["ts", "ts", "swift", "swift"])
+                         ["ts", "swift", "ts", "swift"])
+
+    def test_the_feed_is_chronological_across_repos_not_grouped_by_repo(self):
+        """The bug this pins: rows were appended one repo at a time, so a
+        server build from an hour ago sat below a client build from yesterday
+        purely because the client repo was configured first. Read top-down —
+        the only way anyone reads "recent runs" — this morning's builds looked
+        like they had never happened."""
+        def runs(repo, limit):
+            when = {"o/a": "2026-08-04T17:07:00Z", "o/b": "2026-08-05T14:33:00Z"}[repo]
+            return [dict(RUN, createdAt=when)]
+        lib.gh_runs = runs
+        lines = [l for l in lib.console_lines([("o/a", "A", 1), ("o/b", "B", 1)])
+                 if "cmd" not in l]
+        self.assertEqual([l["text"] for l in lines], ["B · dev", "A · dev"])
+
+    def test_newest_first_within_a_repo_too(self):
+        lib.gh_runs = lambda repo, limit: [
+            dict(RUN, createdAt="2026-08-01T00:00:00Z"),
+            dict(RUN, createdAt="2026-08-05T00:00:00Z"),
+        ]
+        lines = [l for l in lib.console_lines([("o/a", "A", 4)]) if "cmd" not in l]
+        self.assertEqual([l["ts"] for l in lines],
+                         ["2026-08-05T00:00:00Z", "2026-08-01T00:00:00Z"])
+
+    def test_a_row_without_a_timestamp_sorts_last_rather_than_to_the_top(self):
+        lib.gh_runs = lambda repo, limit: [
+            dict(RUN, createdAt=""),
+            dict(RUN, createdAt="2026-08-05T00:00:00Z"),
+        ]
+        lines = [l for l in lib.console_lines([("o/a", "A", 4)]) if "cmd" not in l]
+        self.assertEqual(lines[0].get("ts"), "2026-08-05T00:00:00Z")
+
+    def test_watch_chips_come_after_every_run(self):
+        """They are controls, not events — a chip in the middle of a
+        chronological feed reads as something that happened at that time."""
+        lib.gh_runs = lambda repo, limit: [dict(RUN)]
+        lines = lib.console_lines([("o/a", "A", 1), ("o/b", "B", 1)])
+        first_chip = next(i for i, l in enumerate(lines) if "cmd" in l)
+        self.assertTrue(all("cmd" in l for l in lines[first_chip:]))
 
     def test_watch_chip_per_repo(self):
         lib.gh_runs = lambda repo, limit: [dict(RUN)]

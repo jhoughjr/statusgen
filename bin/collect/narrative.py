@@ -6,12 +6,12 @@ built in: the analysis deserves a human sentence, but the list of what merged
 goes stale the moment the next PR lands. This collector splits the banner at a
 marker line. Above the marker: hand-written prose, preserved verbatim. From
 the marker down: a regenerated, timestamp-led timeline of the PRs merged into
-the base branch — one line per PR, oldest first, local time:
+the base branch — one line per PR, newest first, local time:
 
     <hand-written lede — never touched, see the length rule below>
     ── shipped · auto-refreshed · times CDT ──
-    07-23 10:16 · #166 · SRO price edit contract, partial-code composer search
     07-23 11:53 · #168 · land the stranded confirm-sweep spec fixes
+    07-23 10:16 · #166 · SRO price edit contract, partial-code composer search
 
 "Preserved verbatim" is a promise about ownership, not an endorsement of any
 length: nothing here trims the lede, so nothing here stops it becoming a wall.
@@ -66,8 +66,14 @@ def local_dt(merged_at, tz=None):
 
 
 def timeline(prs, tz=None, limit=20):
-    """Timestamp-led lines, oldest first, capped at the newest `limit`."""
-    ordered = sorted(prs, key=lambda p: p["mergedAt"])[-limit:]
+    """Timestamp-led lines, newest first, capped at the newest `limit`.
+
+    This used to read oldest-first so the day "told a story" in merge order.
+    But a status board is not a changelog: the reader wants the latest thing
+    that shipped, and oldest-first buries it at the bottom of a list that only
+    grows. Take the newest `limit` first, then reverse — slicing before the
+    reverse is what keeps the cap on the newest end rather than the oldest."""
+    ordered = sorted(prs, key=lambda p: p["mergedAt"])[-limit:][::-1]
     return [
         f"{local_dt(p['mergedAt'], tz):%m-%d %H:%M} · #{p['number']} · {clean_title(p['title'])}"
         for p in ordered

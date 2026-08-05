@@ -28,14 +28,16 @@ PRS = [
 
 
 class TimelineTest(unittest.TestCase):
-    def test_lines_lead_with_local_timestamp_oldest_first(self):
+    def test_lines_lead_with_local_timestamp_newest_first(self):
+        # A board is not a changelog: the latest thing to ship reads first,
+        # so the newest line can't get buried under an ever-growing list.
         lines = na.timeline(PRS, tz=CDT)
-        self.assertEqual(lines[0][:11], "07-22 14:46")
-        self.assertEqual(lines[1][:11], "07-23 10:16")
-        self.assertIn("#166", lines[1])
+        self.assertEqual(lines[0][:11], "07-23 10:16")
+        self.assertEqual(lines[1][:11], "07-22 14:46")
+        self.assertIn("#166", lines[0])
 
     def test_trailing_pr_number_dropped_title_otherwise_verbatim(self):
-        line = na.timeline(PRS, tz=CDT)[1]
+        line = na.timeline(PRS, tz=CDT)[0]
         self.assertNotIn("(#166)", line)
         self.assertIn("fix: SRO price edit contract", line)
 

@@ -126,17 +126,44 @@ class ConsoleLinesTest(unittest.TestCase):
                 "event": "push", "createdAt": "2026-07-13T19:03:04Z",
                 "url": "https://github.com/o/r/actions/runs/1"}
 
-    def test_in_progress_and_cancelled_runs_are_skipped(self):
-        # The mess the push-based update used to freeze on: a still-running row
-        # on top, then concurrency-cancelled churn — none should surface.
+    def test_in_progress_runs_are_skipped(self):
+        # The push-based update runs INSIDE a CI run, so `gh run list` reports
+        # that very run as in_progress; surfacing it would freeze the console as
+        # "in progress" forever, since the update step cannot outlive its run.
         runs = [self._run("in_progress", None),
-                self._run("completed", "cancelled"),
-                self._run("completed", "cancelled"),
+                self._run("queued", None),
                 self._run("completed", "success")]
         lib.gh_runs = lambda repo, limit: runs
         lines = lib.console_lines([("o/r", "Repo", 4)])
         statuses = [ln["status"] for ln in lines if "cmd" not in ln]
-        self.assertEqual(statuses, ["success"])  # only the real outcome
+        self.assertEqual(statuses, ["success"])
+
+    def test_superseded_runs_are_shown_not_dropped(self):
+        """They used to be dropped, and that read as builds vanishing: you
+        push, the run appears in "running now", a newer push cancels it, and it
+        never reaches history. The push happened; the feed should say so."""
+        runs = [self._run("completed", "cancelled"),
+                self._run("completed", "success")]
+        lib.gh_runs = lambda repo, limit: runs
+        lines = [ln for ln in lib.console_lines([("o/r", "Repo", 4)])
+                 if "cmd" not in ln]
+        self.assertEqual([ln["status"] for ln in lines], ["cancelled", "success"])
+
+    def test_a_superseded_run_says_why_it_has_no_result(self):
+        lib.gh_runs = lambda repo, limit: [self._run("completed", "cancelled")]
+        line = [ln for ln in lib.console_lines([("o/r", "Repo", 4)])
+                if "cmd" not in ln][0]
+        self.assertIn("superseded", line["meta"])
+        # Still carries the trigger, so "superseded · push" reads as one thought.
+        self.assertIn("push", line["meta"])
+        # Toned down: it is not a failure, and must not read as one.
+        self.assertEqual(line["tone"], "none")
+
+    def test_a_superseded_run_never_becomes_a_verdict(self):
+        """The feed shows it; the tiles must not. CONSOLE_SKIP stays the
+        verdict filter precisely so these two can disagree."""
+        self.assertIn("cancelled", lib.CONSOLE_SKIP)
+        self.assertNotIn("cancelled", lib.FEED_SKIP)
 
     def test_failures_survive_the_filter(self):
         runs = [self._run("in_progress", None), self._run("completed", "failure")]

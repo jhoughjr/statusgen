@@ -155,7 +155,9 @@ def main():
 
     sources = parse_sources(spec)
     trunks = parse_trunks(cfg)
-    lines = lib.console_lines(sources)
+    # The run we are executing inside, if CI told us — see lib.self_run_from.
+    self_run = lib.self_run_from(cfg)
+    lines = lib.console_lines(sources, self_run=self_run)
     if not lines:
         print("ci-status: no CI data (gh unavailable?) — leaving board as-is")
         return 0
@@ -185,6 +187,10 @@ def main():
         runs = lib.gh_runs(repo, 40)
         if not runs:
             continue
+        # Same blind spot as the feed: without this the tiles would be decided
+        # from a window in which the current run has no verdict yet, so a green
+        # trunk build could not mark itself green.
+        runs = lib.apply_self_run(repo, runs, self_run)
         _ci_build_tile(board, label, runs, trunks)
         _last_green_tile(board, repo, label, runs=runs, trunks=trunks)
     lib.save_board(board_path, board)

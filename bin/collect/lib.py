@@ -291,7 +291,7 @@ def gh_runs(repo, limit):
     # commit a repo was last green at. Extra fields are ignored by every other
     # caller, so this stays a superset rather than a second fetch.
     r = sh(["gh", "run", "list", "--repo", repo, "--limit", str(limit),
-            "--json", "status,conclusion,headBranch,event,createdAt,url,headSha"])
+            "--json", "status,conclusion,headBranch,event,createdAt,url,headSha,databaseId"])
     if r.returncode != 0:
         return None
     try:
@@ -396,7 +396,48 @@ def fmt_age(iso, now=None):
     return f"{int(secs // 86400)}d ago"
 
 
-def console_lines(sources):
+def self_run_from(cfg):
+    """The run this collector is executing INSIDE, if any, as
+    (repo, id, conclusion) — else None.
+
+    Set by CI immediately before the board push (see Phoenix's
+    scripts/ci/update-board.sh). It exists because of a blind spot that is
+    invisible until you look for it: the board step runs *within* the job it is
+    reporting on, so `gh run list` reports that job as `in_progress` and every
+    filter drops it. A run therefore can never appear in the board it
+    publishes — it surfaces only when some later push happens to refresh the
+    feed, and if nothing else pushes for hours it looks like the build simply
+    vanished. Which is exactly how it was reported.
+
+    CI already knows the answer `gh` cannot give yet: its own run id and its own
+    outcome. Passing them in lets the feed show the run that wrote it.
+    """
+    repo = (cfg.get("ROOST_CI_SELF_REPO") or "").strip()
+    run_id = (cfg.get("ROOST_CI_SELF_RUN_ID") or "").strip()
+    outcome = (cfg.get("ROOST_CI_SELF_OUTCOME") or "").strip()
+    if not (repo and run_id and outcome):
+        return None
+    return (repo, run_id, outcome)
+
+
+def apply_self_run(repo, runs, self_run):
+    """Stamp the in-flight run with the outcome CI told us, so it stops looking
+    like an unfinished run to every downstream filter. Returns `runs`
+    unchanged when there is nothing to apply."""
+    if not self_run or not runs:
+        return runs
+    self_repo, self_id, outcome = self_run
+    if self_repo != repo:
+        return runs
+    out = []
+    for r in runs:
+        if str(r.get("databaseId", "")) == str(self_id):
+            r = {**r, "status": "completed", "conclusion": outcome}
+        out.append(r)
+    return out
+
+
+def console_lines(sources, self_run=None):
     """sources: [(repo, label, limit)] or [(repo, label, limit, logo)] →
     statusgen console-section lines.
 
@@ -425,6 +466,7 @@ def console_lines(sources):
         data = gh_runs(repo, max(limit * 6, 30))
         if data is None:
             continue
+        data = apply_self_run(repo, data, self_run)
         shown = 0
         for r in data:
             state = r.get("conclusion") or r.get("status") or ""

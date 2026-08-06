@@ -260,15 +260,30 @@ TONE = {
     "cancelled": "none", "skipped": "none", "neutral": "none",
 }
 
-# States we never surface in the console. The push-based board update runs
-# INSIDE a CI run, so `gh run list` reports that very run as `in_progress` —
-# showing it would freeze the console as "in progress" forever, even though the
-# run finishes green moments later (its own update step can't outlive it).
-# Cancelled/skipped are concurrency-superseded churn on a busy branch, not
-# outcomes. Filtering both leaves a clean log of the latest real results; the
-# currently-building run reappears as success/failure on the next refresh.
+# States that are not an OUTCOME — used where a verdict is being decided (the
+# "CI build" and "Last green" tiles). A cancelled run is not evidence that
+# anything passed or failed, so it must never set a badge.
+#
+# The push-based board update also runs INSIDE a CI run, so `gh run list`
+# reports that very run as `in_progress`; treating that as a verdict would
+# freeze a tile as "in progress" forever, since the update step cannot outlive
+# the run it is reporting on.
 CONSOLE_SKIP = {"in_progress", "queued", "waiting", "requested",
                 "cancelled", "skipped"}
+
+# States the FEED hides — a strictly smaller set, and the difference matters.
+#
+# The feed answers "what happened, in order"; the tiles answer "is it green".
+# Those are different questions and used to share one filter, so a run
+# cancelled by `cancel-in-progress` was dropped from the feed entirely. From
+# the outside that reads as a build vanishing: you push, the run appears in
+# "CI — running now", a newer push supersedes it, and it never lands in
+# history. Reported exactly that way — "it did appear there and vanished".
+#
+# Superseded runs are now shown, toned down and labelled, so the record is
+# complete. Still hidden: queued/in-progress, which have not happened yet and
+# have their own live section.
+FEED_SKIP = {"in_progress", "queued", "waiting", "requested"}
 
 
 def gh_runs(repo, limit):
@@ -405,16 +420,15 @@ def console_lines(sources):
     for source in sources:
         repo, label, limit = source[0], source[1], source[2]
         logo = source[3] if len(source) > 3 else None
-        # Over-fetch: on a busy branch most recent runs are in-progress or
-        # concurrency-cancelled, so pull well past `limit` to still land
-        # `limit` real outcomes after CONSOLE_SKIP filtering.
+        # Over-fetch: on a busy branch many recent runs are still in progress,
+        # so pull well past `limit` to still land `limit` rows after filtering.
         data = gh_runs(repo, max(limit * 6, 30))
         if data is None:
             continue
         shown = 0
         for r in data:
             state = r.get("conclusion") or r.get("status") or ""
-            if state in CONSOLE_SKIP:
+            if state in FEED_SKIP:
                 continue
             if shown >= limit:
                 break
@@ -430,7 +444,14 @@ def console_lines(sources):
             if logo:
                 line["logo"] = logo
             event = r.get("event", "")
-            if event:
+            # Say WHY a run has no result, rather than showing a bare
+            # "cancelled" the reader has to account for. Almost always this is
+            # `cancel-in-progress` retiring a run because a newer push landed —
+            # the push happened, the build did not finish, and both facts
+            # belong in a feed that claims to show what happened.
+            if state in ("cancelled", "skipped"):
+                line["meta"] = f"· superseded · {event}" if event else "· superseded"
+            elif event:
                 line["meta"] = f"· {event}"
             ts = r.get("createdAt", "")
             if ts:

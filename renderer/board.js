@@ -236,6 +236,13 @@
   // `pill`, desc — becomes the <summary> line, so a collapsed section states
   // exactly what an expanded one does; only the rows underneath are hidden,
   // never the signal. Starts open unless the section sets `collapsed: true`.
+  // EVERY section renderer must return through here.
+  //
+  // `collapsible` is a section-level property, but for a while only
+  // renderTable actually honoured it — every other renderer hand-built
+  // `section > [heading, content]` and silently dropped the flag. Setting
+  // collapsible on a `cards` section therefore did nothing at all, which reads
+  // as the feature being broken rather than unimplemented.
   function buildBlock(section, content) {
     const heading = buildHeading(section);
     if (!section.collapsible) {
@@ -290,7 +297,7 @@
     // row that mirrors the hero tiles, for side-by-side comparison); the
     // untitled hero row stays wrapper-free directly under the stamp.
     if (section.title || section.icon) {
-      return el("section", { class: "block" }, [buildHeading(section), wrap]);
+      return buildBlock(section, wrap);
     }
     return wrap;
   }
@@ -367,7 +374,7 @@
 
     if (section.note) card.append(el("p", { class: "chart-note" }, section.note));
 
-    return el("section", { class: "block" }, [buildHeading(section), card]);
+    return buildBlock(section, card);
   }
 
   // pie — a donut chart. Each slice is a stroke-dasharray segment of one
@@ -382,7 +389,7 @@
     if (!slices.length || total <= 0) {
       card.append(el("div", { class: "empty" }, "No data."));
       if (section.note) card.append(el("p", { class: "chart-note" }, section.note));
-      return el("section", { class: "block" }, [buildHeading(section), card]);
+      return buildBlock(section, card);
     }
 
     const size = 160;
@@ -440,7 +447,7 @@
     card.append(wrap);
     if (section.note) card.append(el("p", { class: "chart-note" }, section.note));
 
-    return el("section", { class: "block" }, [buildHeading(section), card]);
+    return buildBlock(section, card);
   }
 
   // table — columns + rows; a cell is a string or { pill, tone }. Supports
@@ -498,7 +505,7 @@
       }
     }
 
-    return el("section", { class: "block" }, [buildHeading(section), card]);
+    return buildBlock(section, card);
   }
 
   // split — two columns of checklist items. column.style is "check" | "pend".
@@ -524,7 +531,7 @@
       split.append(col);
     }
 
-    return el("section", { class: "block" }, [buildHeading(section), split]);
+    return buildBlock(section, split);
   }
 
   // compare — two (or more) columns, each a labeled group of stat tiles, for
@@ -549,7 +556,7 @@
       col.append(tiles);
       wrap.append(col);
     }
-    return el("section", { class: "block" }, [buildHeading(section), wrap]);
+    return buildBlock(section, wrap);
   }
 
   // console — a terminal-styled log block (dark, monospace). Each line is a
@@ -593,7 +600,7 @@
   function renderConsole(section) {
     const term = el("div", { class: "console" });
     fillConsole(term, section.lines || section.items || []);
-    return el("section", { class: "block" }, [buildHeading(section), term]);
+    return buildBlock(section, term);
   }
 
   // live-console — a self-refreshing console. Polls section.poll.url and

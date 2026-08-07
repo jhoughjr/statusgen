@@ -437,6 +437,37 @@ def apply_self_run(repo, runs, self_run):
     return out
 
 
+_RUNNER_CACHE = {}
+
+
+def gh_run_runner(repo, run_id):
+    """Short name of the machine a run executed on — "mini", "macbook" — or
+    None when it cannot be determined.
+
+    `gh run list` does not carry this, and neither does `gh run view --json
+    jobs`; only the REST jobs endpoint does. That is one extra call per row, so
+    results are cached for the life of the process (a collector run), and any
+    failure returns None rather than costing the whole feed.
+
+    Worth the call: with two runners, "which box ran this" is the first
+    question asked about a build that behaved differently from its neighbour —
+    and a job that never got assigned shows no runner at all, which is itself
+    the answer.
+    """
+    if not run_id:
+        return None
+    key = (repo, str(run_id))
+    if key in _RUNNER_CACHE:
+        return _RUNNER_CACHE[key]
+    r = sh(["gh", "api", f"repos/{repo}/actions/runs/{run_id}/jobs",
+            "-q", ".jobs[0].runner_name // empty"], timeout=20)
+    name = r.stdout.strip() if r.returncode == 0 else ""
+    # "jimmys-mac-mini" -> "mini"; the shared prefix is noise on every row.
+    short = name.rsplit("-", 1)[-1] if name else None
+    _RUNNER_CACHE[key] = short
+    return short
+
+
 def console_lines(sources, self_run=None):
     """sources: [(repo, label, limit)] or [(repo, label, limit, logo)] →
     statusgen console-section lines.
@@ -495,6 +526,12 @@ def console_lines(sources, self_run=None):
                 line["meta"] = f"· superseded · {event}" if event else "· superseded"
             elif event:
                 line["meta"] = f"· {event}"
+            # Which box ran it. Absent means the job never reached a runner —
+            # which is exactly what a GitHub-side assignment failure looks like,
+            # and is worth being able to see rather than infer.
+            runner = gh_run_runner(repo, r.get("databaseId"))
+            if runner:
+                line["meta"] = f"{line.get('meta', '')} · {runner}".strip()
             ts = r.get("createdAt", "")
             if ts:
                 line["ts"] = ts

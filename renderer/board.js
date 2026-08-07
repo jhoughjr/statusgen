@@ -61,6 +61,33 @@
     });
   }
 
+  // Relative age, computed AT RENDER TIME from a timestamp.
+  //
+  // The collector used to bake this as a literal string ("24m ago") into
+  // board.json. That is correct for exactly as long as it takes to publish the
+  // file and wrong forever after: a board sitting on a wall kept insisting a
+  // build had gone green 24 minutes ago, hours later, with no such run in the
+  // history below it. The board contradicting itself is worse than the board
+  // being stale, because one of the two numbers has to be a lie and the reader
+  // cannot tell which.
+  //
+  // Computing it here means it re-derives on every render, and the page
+  // re-renders on refresh — so it decays honestly instead of freezing.
+  function fmtAge(ts, now = Date.now()) {
+    if (!ts) return "";
+    const t = Date.parse(ts);
+    if (Number.isNaN(t)) return "";
+    const secs = Math.round((now - t) / 1000);
+    // A clock skew between the publisher and the viewer must not render as a
+    // build from the future.
+    if (secs < 60) return "just now";
+    const mins = Math.round(secs / 60);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.round(hours / 24)}d ago`;
+  }
+
   // Maps a barchart series/legend `fill` token to the CSS variable that
   // colors it. Keep in sync with the .bar-fill.<fill> rules in board.css.
   const FILL_VAR = { code: "var(--accent)", gen: "var(--done)" };
@@ -241,6 +268,13 @@
     if (item.href) attrs.href = item.href;
     const stat = el(item.href ? "a" : "div", attrs);
     const n = el("div", { class: "n" }, item.ts ? fmtTime(item.ts) : (item.n ?? ""));
+    // `since` is a timestamp the tile wants shown as an age. Deliberately not
+    // part of `n`: the collector must never hand us a pre-rendered "24m ago",
+    // because that string is only true at the instant it is written.
+    if (item.since) {
+      const age = fmtAge(item.since);
+      if (age) n.append(el("span", { class: "tile-age" }, ` · ${age}`));
+    }
     if (item.stale) n.append(el("span", { class: "stale-flag", "aria-label": "stale" }, " ⚠"));
     stat.append(n);
     stat.append(el("div", { class: "l" }, item.label ?? ""));
@@ -846,7 +880,7 @@
   // drives the renderer headlessly. `module` is undefined in a browser, so the
   // guard makes this a no-op everywhere it actually ships.
   if (typeof module === "object" && module && module.exports) {
-    module.exports = { renderBoard, partitionSections, buildStatTile, init };
+    module.exports = { renderBoard, partitionSections, buildStatTile, init, fmtAge };
   }
 
   if (document.readyState === "loading") {

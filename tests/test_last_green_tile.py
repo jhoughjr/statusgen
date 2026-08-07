@@ -55,17 +55,30 @@ class LastGreenTile(unittest.TestCase):
         self._real = lib.gh_runs
         self.addCleanup(lambda: setattr(lib, "gh_runs", self._real))
 
-    def test_names_the_last_successful_commit_and_its_age(self):
+    def test_names_the_last_successful_commit_and_when(self):
         lib.gh_runs = lambda repo, limit: RUNS
         board = board_with([{"label": "CI build", "n": "✗", "tone": "you"}])
         ci_status._last_green_tile(board, "o/r", "Phoenix")
 
         t = tile(board, "Last green")
         self.assertIsNotNone(t)
-        self.assertTrue(t["n"].startswith("4bfbe2b · "), t["n"])
-        self.assertTrue(t["n"].endswith("ago"), t["n"])
+        self.assertEqual(t["n"], "4bfbe2b")
         self.assertEqual(t["tone"], "go")
         self.assertEqual(t["href"], "u/green")
+        # The TIMESTAMP travels, not a rendered age.
+        self.assertEqual(t["since"], "2026-08-04T10:00:00Z")
+
+    def test_never_bakes_a_relative_age_into_the_value(self):
+        """The bug this replaced: the collector wrote "4bfbe2b · 24m ago" into
+        board.json, which is true for as long as it takes to publish the file
+        and wrong forever after. A board left open kept insisting a build had
+        gone green 24 minutes ago, hours later, with no such run in the history
+        directly below it — the board contradicting itself, which is worse than
+        the board being stale, because the reader cannot tell which half lies."""
+        lib.gh_runs = lambda repo, limit: RUNS
+        board = board_with([])
+        ci_status._last_green_tile(board, "o/r", "Phoenix")
+        self.assertNotIn("ago", tile(board, "Last green")["n"])
 
     def test_survives_a_red_current_build(self):
         """The reason the tile exists: red must not blank out the last good."""
@@ -74,7 +87,7 @@ class LastGreenTile(unittest.TestCase):
         ci_status._last_green_tile(board, "o/r", "Phoenix")
 
         self.assertEqual(tile(board, "CI build")["n"], "✗")
-        self.assertTrue(tile(board, "Last green")["n"].startswith("4bfbe2b"))
+        self.assertEqual(tile(board, "Last green")["n"], "4bfbe2b")
 
     def test_skips_cancelled_and_failed_runs(self):
         """A superseded (cancelled) run is not evidence of anything."""

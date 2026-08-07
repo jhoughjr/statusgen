@@ -152,7 +152,7 @@ def set_compare_tile(board, match, n, label=None, tone=None, column=None):
 
 
 def upsert_compare_tile(board, column, label, n, tone=None, href=None,
-                        match=None):
+                        match=None, since=None):
     """Create-or-update a tile in the compare column whose title contains
     `column`. Matches an existing tile by `match` (default: `label`) as a
     prefix, so a collector can rename its own tile without orphaning the old
@@ -176,7 +176,11 @@ def upsert_compare_tile(board, column, label, n, tone=None, href=None,
         tile["label"] = label
         # None clears: a tile that had a link last run but has none now must
         # not keep pointing at a stale run.
-        for key, val in (("tone", tone), ("href", href)):
+        # `since` is a TIMESTAMP the renderer turns into an age at render time.
+        # Never pass a pre-rendered "24m ago" as `n`: it is true only at the
+        # instant it is written, and a board left open then insists on it for
+        # hours while the run history below it says otherwise.
+        for key, val in (("tone", tone), ("href", href), ("since", since)):
             if val is None:
                 tile.pop(key, None)
             else:

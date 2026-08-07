@@ -135,10 +135,14 @@ def _last_green_tile(board, repo, label, runs=None, trunks=None):
                                 tone="you", href=None)
         return
     sha = str(green.get("headSha", ""))[:7] or "?"
-    age = lib.fmt_age(green.get("createdAt"))
-    lib.upsert_compare_tile(board, label, "Last green",
-                            f"{sha} · {age}" if age else sha,
-                            tone="go", href=green.get("url"))
+    # The SHA is a fact; the age is not — it is only true at the instant it is
+    # written. Baking "24m ago" into board.json meant a board sitting open kept
+    # asserting a build had gone green 24 minutes ago, hours later, with no such
+    # run in the history right below it. Hand the renderer the timestamp and let
+    # it compute the age at render time, where it can decay honestly.
+    lib.upsert_compare_tile(board, label, "Last green", sha,
+                            tone="go", href=green.get("url"),
+                            since=green.get("createdAt"))
 
 
 def main():

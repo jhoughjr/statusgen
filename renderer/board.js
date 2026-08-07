@@ -783,28 +783,70 @@
     container.append(el("p", { class: "board-error" }, message));
   }
 
+  // How often an open tab re-checks the board.
+  //
+  // The board used to be fetched exactly once, at boot, so a tab left open was
+  // frozen at whatever it loaded — every run that landed afterwards was
+  // invisible until someone pressed reload. That is indistinguishable from a
+  // build vanishing, and it is what a board left open on a wall does all day.
+  // Reported, repeatedly, as runs disappearing.
+  const REFRESH_MS = 60_000;
+
   function init() {
     const container = document.getElementById("board-root") || document.body;
     const src = window.BOARD_SRC || "board.json";
+    // Re-render only when the file actually changed. A board is a page people
+    // scroll and expand things on; redrawing it every minute for no reason
+    // would throw that away and make the tab unusable.
+    let lastSeen = null;
+    let failures = 0;
 
-    fetch(src, { cache: "no-cache" })
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const generatedAt = res.headers.get("Last-Modified");
-        return res.json().then((data) => ({ data, generatedAt }));
-      })
-      .then(({ data, generatedAt }) => {
-        renderBoard(data, container, generatedAt);
-        maybeAddHistoryLink(container, data);
-      })
-      .catch((err) => showError(container, `Couldn't load ${src}: ${err.message}`));
+    const load = (isRefresh) =>
+      fetch(src, { cache: "no-cache" })
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const generatedAt = res.headers.get("Last-Modified");
+          return res.text().then((text) => ({ text, generatedAt }));
+        })
+        .then(({ text, generatedAt }) => {
+          failures = 0;
+          // Compare the payload itself rather than Last-Modified: a CDN in
+          // front of the site can rewrite or omit that header, and being wrong
+          // here means silently never updating again — the exact bug this
+          // exists to fix.
+          if (isRefresh && text === lastSeen) return;
+          lastSeen = text;
+          renderBoard(JSON.parse(text), container, generatedAt);
+          maybeAddHistoryLink(container, JSON.parse(text));
+        })
+        .catch((err) => {
+          // A refresh that fails leaves the board that is already on screen —
+          // stale data beats replacing a working page with an error because
+          // the network blipped. Only the first load has nothing to fall back
+          // to.
+          if (!isRefresh) showError(container, `Couldn't load ${src}: ${err.message}`);
+          else if (++failures === 1) console.warn(`board refresh failed: ${err.message}`);
+        });
+
+    load(false);
+
+    if (typeof setInterval === "function") {
+      setInterval(() => load(true), REFRESH_MS);
+    }
+    // A tab that has been in the background for hours is the worst offender:
+    // catch it up the moment it is looked at, rather than up to a minute later.
+    if (typeof document.addEventListener === "function") {
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) load(true);
+      });
+    }
   }
 
   // Test seam: tests/test_tabs.mjs evaluates this file against a stub DOM and
   // drives the renderer headlessly. `module` is undefined in a browser, so the
   // guard makes this a no-op everywhere it actually ships.
   if (typeof module === "object" && module && module.exports) {
-    module.exports = { renderBoard, partitionSections, buildStatTile };
+    module.exports = { renderBoard, partitionSections, buildStatTile, init };
   }
 
   if (document.readyState === "loading") {

@@ -192,7 +192,14 @@ def upsert_compare_tile(board, column, label, n, tone=None, href=None,
 # A collector rebuilds its section from data every push, so anything hand-set
 # on it is otherwise erased within the hour — which makes "put a logo on that
 # section" an edit that silently doesn't stick.
-PRESERVED_SECTION_KEYS = ("logo",)
+# `collapsible`/`collapsed` are here for the same reason as `logo`, and the
+# reason got sharper once collapsing worked on every section kind rather than
+# only tables: "collapse that section" is a judgement about how the board reads,
+# which a collector has no opinion about. Without these, hand-collapsing a
+# collector-owned section (the CI console, say) works until the next status push
+# and then silently reverts — an edit that appears to do nothing, which is
+# exactly the failure this constant exists to prevent.
+PRESERVED_SECTION_KEYS = ("logo", "collapsible", "collapsed")
 
 
 def upsert_section(board, title, section, after_kind="compare"):

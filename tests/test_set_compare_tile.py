@@ -204,3 +204,47 @@ class UpsertSectionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CollapseStateSurvivesCollectors(unittest.TestCase):
+    """A hand-set collapse must not be erased by the next status push.
+
+    `upsert_section` replaces a collector-owned section wholesale, so anything
+    presentational the board carried is lost unless it is preserved. Without
+    this, "collapse the CI console" is an edit that works until the next push
+    and then silently reverts — the same class of silent no-op as setting
+    `collapsible` on a section kind that never implemented it.
+    """
+
+    def _board(self, extra=None):
+        section = {"kind": "console", "title": "CI — recent runs", "lines": []}
+        section.update(extra or {})
+        return {"sections": [{"kind": "compare", "columns": []}, section]}
+
+    def _section(self, board):
+        return next(s for s in board["sections"] if s.get("title") == "CI — recent runs")
+
+    def test_a_hand_set_collapse_survives_a_rebuild(self):
+        board = self._board({"collapsible": True, "collapsed": True})
+        lib.upsert_section(board, "CI — recent runs",
+                           {"kind": "console", "title": "CI — recent runs",
+                            "lines": ["new"]})
+        s = self._section(board)
+        self.assertTrue(s["collapsible"])
+        self.assertTrue(s["collapsed"])
+        self.assertEqual(s["lines"], ["new"])  # the collector still owns its data
+
+    def test_a_collector_that_states_it_still_wins(self):
+        # repo_stats' E2E table opens itself on a red run — an explicit opinion
+        # must beat the preserved one.
+        board = self._board({"collapsible": True, "collapsed": True})
+        lib.upsert_section(board, "CI — recent runs",
+                           {"kind": "console", "title": "CI — recent runs",
+                            "lines": [], "collapsed": False})
+        self.assertFalse(self._section(board)["collapsed"])
+
+    def test_nothing_is_invented_for_a_section_that_never_had_it(self):
+        board = self._board()
+        lib.upsert_section(board, "CI — recent runs",
+                           {"kind": "console", "title": "CI — recent runs", "lines": []})
+        self.assertNotIn("collapsible", self._section(board))

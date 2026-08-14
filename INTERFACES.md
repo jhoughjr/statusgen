@@ -48,14 +48,20 @@ any specific site.
   it into a site (`bin/sync-renderer.sh`, with content-hash cache-busting).
 - Owns the **generic collectors** (`bin/collect/*`) that produce `board.json`
   from a data source: `repo_stats`, `ci_status`, `ci_health`, `swift_tests`,
-  `shipped_week`, `api_consumption`, and `history` (a site's git log → the
-  History board).
+  `swift_test_report`, `shipped_week`, `api_consumption`, and `history` (a
+  site's git log → the History board).
 
   On a multi-repo board these split by *which repo they speak for*, and each
   scopes its writes to that repo's compare column: `ci_status` owns the ✓/✗,
-  `ci_health` the build's cost, `repo_stats` a repo with a CI test report,
-  `swift_tests` one without. An unscoped write is how a number ends up
+  `ci_health` the build's cost, `repo_stats` a JavaScript repo with a CI test
+  report, `swift_test_report` a Swift repo with one, `swift_tests` a repo whose
+  suite does not run in CI at all. An unscoped write is how a number ends up
   rendered under another repo's heading.
+
+  The last two are mutually exclusive per repo, and the day a repo's gate
+  starts emitting a report is the day it moves from `ROOST_SWIFT_TESTS` to
+  `ROOST_SWIFT_REPORT`. Left in both, they fight over the same tile on every
+  push and the winner is whichever ran last.
 - Owns **scaffolding** (`bin/new-site.sh`, `bin/new-board.sh`).
 
 **roost — the driver.** The one place that knows *where things live and when to

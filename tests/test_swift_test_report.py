@@ -128,6 +128,24 @@ class Patching(unittest.TestCase):
                          ["Lines", "Regions", "Functions", "Branches"])
         self.assertEqual(got["series"][0]["value"], 61.4)
 
+    def test_the_chart_holds_only_the_metrics_the_report_carries(self):
+        """The shape the MWServer gate really emits: three metrics, no branches.
+
+        Swift does not instrument branch coverage, so the emitter leaves the
+        key out rather than sending a zero. The chart must then draw three
+        bars, because a fourth bar at zero would claim no branch is covered.
+        """
+        partial = {k: v for k, v in REPORT.items()
+                   if k != "coverage_branches_pct"}
+        board = board_with([])
+        self.apply(board, report=partial)
+
+        got = section(board, "MWServer — test coverage")
+        self.assertEqual([s["label"] for s in got["series"]],
+                         ["Lines", "Regions", "Functions"])
+        # The tile still reads lines, which is the metric it carries.
+        self.assertEqual(tile(board, "Coverage (lines)")["n"], "61%")
+
     def test_a_report_without_coverage_writes_no_coverage_at_all(self):
         """A gate that does not measure coverage must leave the chart and the
         tile absent. Rendering an absent measurement as 0% would read as

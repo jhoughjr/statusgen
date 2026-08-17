@@ -10,6 +10,10 @@ something ran and passed; "367 tests written" is a claim about the source tree
 and nothing more. Rendering the second as if it were the first is how a board
 starts lying, so the two never share a label here.
 
+A repo may run both collectors while its gate is only half wired. The measured
+number wins there: this collector drops its own "Tests written" tile and leaves
+the file count, which nothing else measures.
+
 Counted from `origin/<branch>` after a best-effort fetch, never from the
 working tree: a status writer's checkout sits wherever someone last left it,
 and a number counted from a stale or half-switched tree is worse than none.
@@ -130,10 +134,21 @@ def apply_source(board, source):
     sha = lib.sh(["git", "-C", source["root"], "rev-parse", "--short",
                   ref]).stdout.strip()
     # "written", never "green": nothing here observed a test pass. Tone `srv`
-    # is the board's neutral other-side colour — a count is not an outcome, so
+    # is the board's neutral other-side colour. A count is not an outcome, so
     # it must not be able to read as one.
-    lib.upsert_compare_tile(board, source["column"], "Tests written",
-                            f"{cases:,}", tone="srv")
+    #
+    # A measured result outranks a source count, so the inventory tile stands
+    # down when `swift_test_report` has already put a green number in this
+    # column. Both tiles state the same quantity two ways, and a reader cannot
+    # tell which one to believe.
+    # The removal matters as much as the skip: a board that carried both tiles
+    # before this run loses the inventory one here, instead of keeping a number
+    # no collector writes any more.
+    if lib.compare_tile(board, source["column"], "Tests green") is not None:
+        lib.remove_compare_tile(board, source["column"], "Tests written")
+    else:
+        lib.upsert_compare_tile(board, source["column"], "Tests written",
+                                f"{cases:,}", tone="srv")
     lib.upsert_compare_tile(board, source["column"], "Test files",
                             f"{files:,}", tone="srv", match="Test files")
     return (f"{source['column']}: {cases:,} cases in {files:,} files "

@@ -128,6 +128,36 @@ def compare_columns(board, match=None):
     return out
 
 
+def compare_tile(board, column, label):
+    """The first tile in `column` whose label starts with `label`, or None.
+
+    This is how one collector asks what another collector already wrote into
+    the column it shares. Two collectors that measure the same quantity use it
+    to settle which number the column keeps."""
+    for col in compare_columns(board, column):
+        for tile in col.get("items", []):
+            if str(tile.get("label", "")).startswith(label):
+                return tile
+    return None
+
+
+def remove_compare_tile(board, column, label):
+    """Delete every tile in `column` whose label starts with `label`.
+
+    Returns how many tiles went. A tile no collector writes any more is worse
+    than a missing tile: it holds the number its collector last wrote, no later
+    run corrects it, and the board states it beside the live tiles with the
+    same confidence."""
+    removed = 0
+    for col in compare_columns(board, column):
+        items = col.get("items", [])
+        keep = [t for t in items
+                if not str(t.get("label", "")).startswith(label)]
+        removed += len(items) - len(keep)
+        col["items"] = keep
+    return removed
+
+
 def set_compare_tile(board, match, n, label=None, tone=None, column=None):
     """Set the value (and optionally label/tone) of the compare tile whose
     current label starts with `match`. Returns True when a tile was found and

@@ -233,3 +233,56 @@ class ShTimeoutTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class InventoryStandsDownTest(unittest.TestCase):
+    """A repo whose gate reports a measured result keeps that number alone.
+
+    `swift_test_report` writes "Tests green" from a run that passed, and this
+    collector counts what the source tree declares. Both numbers answer "how
+    many tests", so a column that shows both makes the reader pick one."""
+
+    def setUp(self):
+        self.repo = make_repo({"Tests/AppTests/Order.swift": SWIFT_TESTING,
+                               "Tests/AppTests/Legacy.swift": XCTEST})
+        self.source = dict(SOURCE, root=self.repo)
+
+    def measured_board(self):
+        b = board()
+        b["sections"][0]["columns"][1]["items"].append(
+            {"n": "618", "label": "Tests green", "tone": "go"})
+        return b
+
+    def test_no_inventory_tile_lands_beside_a_measured_one(self):
+        b = self.measured_board()
+        self.assertIsNotNone(swift_tests.apply_source(b, self.source))
+        self.assertNotIn("Tests written", tiles(b))
+
+    def test_the_file_count_still_lands(self):
+        # Nothing else measures it, so it is the collector's whole remaining job.
+        b = self.measured_board()
+        swift_tests.apply_source(b, self.source)
+        self.assertEqual(tiles(b)["Test files"]["n"], "2")
+
+    def test_the_measured_tile_is_left_exactly_as_it_was(self):
+        b = self.measured_board()
+        swift_tests.apply_source(b, self.source)
+        green = tiles(b)["Tests green"]
+        self.assertEqual(green["n"], "618")
+        self.assertEqual(green["tone"], "go")
+
+    def test_a_board_that_already_carries_both_loses_the_inventory_tile(self):
+        # The regression this guards: the duplicate reached the live board once
+        # already. A run must correct it, not preserve it.
+        b = self.measured_board()
+        b["sections"][0]["columns"][1]["items"].append(
+            {"n": "625", "label": "Tests written", "tone": "srv"})
+        swift_tests.apply_source(b, self.source)
+        labels = [t["label"] for t in b["sections"][0]["columns"][1]["items"]]
+        self.assertNotIn("Tests written", labels)
+        self.assertIn("Tests green", labels)
+
+    def test_a_column_without_a_measured_tile_still_gets_the_inventory(self):
+        b = board()
+        swift_tests.apply_source(b, self.source)
+        self.assertEqual(tiles(b)["Tests written"]["n"], "5")

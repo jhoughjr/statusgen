@@ -39,6 +39,7 @@ import lib  # noqa: E402
 TREND_MAX = 20        # points on the trend charts
 WORST_MAX = 12        # rows in the least-covered table
 FAIL_MAX = 40         # failing specs listed
+ERROR_MAX = 240       # characters of a failure's reason kept on its line
 
 
 def load_reports(state_dir):
@@ -148,8 +149,18 @@ def failures_section(report, run_url):
     for f in fails[:FAIL_MAX]:
         line = {"status": f.get("type", "test"), "tone": "err",
                 "text": f.get("title") or f.get("file") or "(unnamed)"}
+        # The reason travels beside the name when the run recorded one. A name
+        # on its own sends the reader to a CI artifact, and CI deletes those
+        # within days, which is where the question usually stops. A report that
+        # predates the reason simply carries no `error` key and shows the file.
+        bits = []
         if f.get("file") and f.get("title"):
-            line["meta"] = f"· {f['file']}"
+            bits.append(f"· {f['file']}")
+        reason = str(f.get("error") or "").strip()
+        if reason:
+            bits.append(reason[:ERROR_MAX])
+        if bits:
+            line["meta"] = " ".join(bits)
         if run_url:
             line["href"] = run_url
         lines.append(line)

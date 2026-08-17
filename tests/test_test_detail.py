@@ -234,3 +234,43 @@ class TestSections(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFailureReason(unittest.TestCase):
+    """A failing test carries why it failed, when the run recorded it.
+
+    The name alone points a reader at a CI artifact, and CI deletes those
+    within days. That is where the question "why did this fail" usually stops,
+    so the reason rides on the board instead."""
+
+    def line(self, failure):
+        s = td.failures_section(report(failures=[failure]), RUN)
+        return s["lines"][0]
+
+    def test_the_reason_rides_beside_the_file(self):
+        line = self.line({
+            "type": "e2e", "file": "invoice-payment.spec.ts",
+            "title": "invoice-payment.spec.ts > flips to PAID",
+            "error": "Error: expect(received).toBe(expected) Expected: true Received: false",
+        })
+        self.assertIn("· invoice-payment.spec.ts", line["meta"])
+        self.assertIn("Expected: true Received: false", line["meta"])
+
+    def test_a_report_without_a_reason_still_shows_the_file(self):
+        # Every report emitted before the reason existed lands here.
+        line = self.line({"type": "e2e", "file": "x.spec.ts", "title": "x.spec.ts > t"})
+        self.assertEqual(line["meta"], "· x.spec.ts")
+
+    def test_an_empty_reason_is_not_rendered_as_one(self):
+        line = self.line({"type": "e2e", "file": "x.spec.ts",
+                          "title": "x.spec.ts > t", "error": "   "})
+        self.assertEqual(line["meta"], "· x.spec.ts")
+
+    def test_a_runaway_reason_is_cut_rather_than_wrapped_across_the_console(self):
+        line = self.line({"type": "e2e", "file": "x.spec.ts",
+                          "title": "x.spec.ts > t", "error": "z" * 5000})
+        self.assertLessEqual(len(line["meta"]), len("· x.spec.ts ") + td.ERROR_MAX)
+
+    def test_a_reason_without_a_file_still_reaches_the_reader(self):
+        line = self.line({"type": "e2e", "title": "t", "error": "boom"})
+        self.assertEqual(line["meta"], "boom")

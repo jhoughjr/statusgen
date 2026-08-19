@@ -326,6 +326,14 @@ CONSOLE_SKIP = {"in_progress", "queued", "waiting", "requested",
 # have their own live section.
 FEED_SKIP = {"in_progress", "queued", "waiting", "requested"}
 
+# A skipped run built nothing. Its jobs' conditions were false, so it never
+# reached a runner. A comment on a pull request can produce one, and three
+# comments in a minute produced three of them on 2026-08-18, which filled a
+# repo's whole allowance in this feed and pushed every real build out of sight.
+# `cancelled` is deliberately not here: that run WAS building and something
+# retired it, which is a fact about builds and belongs in the feed.
+FEED_NON_BUILD = {"skipped"}
+
 
 def gh_runs(repo, limit):
     # headSha is here for the "Last green" tile (ci_status.py), which names the
@@ -542,7 +550,7 @@ def console_lines(sources, self_run=None):
         shown = 0
         for r in data:
             state = r.get("conclusion") or r.get("status") or ""
-            if state in FEED_SKIP:
+            if state in FEED_SKIP or state in FEED_NON_BUILD:
                 continue
             if shown >= limit:
                 break
@@ -563,7 +571,7 @@ def console_lines(sources, self_run=None):
             # `cancel-in-progress` retiring a run because a newer push landed —
             # the push happened, the build did not finish, and both facts
             # belong in a feed that claims to show what happened.
-            if state in ("cancelled", "skipped"):
+            if state == "cancelled":
                 line["meta"] = f"· superseded · {event}" if event else "· superseded"
             elif event:
                 line["meta"] = f"· {event}"

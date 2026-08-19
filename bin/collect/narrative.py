@@ -27,7 +27,9 @@ the timeline falls back to the most recent day that had merges, so the banner
 always shows the latest things that actually shipped.
 
 Config (~/.roostrc):
-  ROOST_STATS_GH_REPO=owner/repo
+  ROOST_CI_REPOS=owner/repo:Label,…   # every repo whose merges belong here
+  ROOST_NARRATIVE_REPOS=…              # optional: overrides ROOST_CI_REPOS
+  ROOST_STATS_GH_REPO=owner/repo       # fallback for a one-repo board
   ROOST_STATS_BOARD=clauffice
   ROOST_SHIPPED_BASE=dev       # optional: base branch (default dev, shared with shipped_week)
   ROOST_NARRATIVE_DAYS=2       # optional: days of merges to list (default 2)
@@ -74,10 +76,17 @@ def timeline(prs, tz=None, limit=20):
     grows. Take the newest `limit` first, then reverse — slicing before the
     reverse is what keeps the cap on the newest end rather than the oldest."""
     ordered = sorted(prs, key=lambda p: p["mergedAt"])[-limit:][::-1]
-    return [
-        f"{local_dt(p['mergedAt'], tz):%m-%d %H:%M} · #{p['number']} · {clean_title(p['title'])}"
-        for p in ordered
-    ]
+    # The label is written only when more than one repo feeds the timeline.
+    # On a one-repo board it would say the same word on every line, and the
+    # board heading already says it.
+    labelled = len({p.get("label") for p in ordered if p.get("label")}) > 1
+    out = []
+    for p in ordered:
+        who = f"{p['label']} " if labelled and p.get("label") else ""
+        out.append(
+            f"{local_dt(p['mergedAt'], tz):%m-%d %H:%M} · {who}#{p['number']} · {clean_title(p['title'])}"
+        )
+    return out
 
 
 def render_block(prs, tz=None, limit=20):
@@ -114,6 +123,31 @@ def pick_window(prs, days, now=None):
 
 # ── collection ────────────────────────────────────────────────────────────
 
+def narrative_sources(cfg):
+    """[(slug, label)] for every repo whose merges belong on this board.
+
+    A board that shows two stacks and narrates one of them reads as though the
+    quiet stack did nothing. `ROOST_CI_REPOS` already names each repo and its
+    label for the CI feed, so the same list drives the timeline rather than a
+    second place to keep in step. `ROOST_STATS_GH_REPO` stays the fallback, and
+    is what a one-repo board still uses."""
+    spec = cfg.get("ROOST_NARRATIVE_REPOS", "") or cfg.get("ROOST_CI_REPOS", "")
+    out = []
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        bits = part.split(":")
+        slug = bits[0].strip()
+        if not slug:
+            continue
+        out.append((slug, bits[1].strip() if len(bits) > 1 and bits[1].strip() else slug.split("/")[-1]))
+    if out:
+        return out
+    slug = cfg.get("ROOST_STATS_GH_REPO", "")
+    return [(slug, cfg.get("ROOST_STATS_LABEL", "").strip() or None)] if slug else []
+
+
 def merged_prs(slug, base):
     out = subprocess.run(
         ["gh", "pr", "list", "-R", slug, "--state", "merged", "--base", base,
@@ -126,10 +160,10 @@ def merged_prs(slug, base):
 
 def main():
     cfg = lib.read_roostrc()
-    slug = cfg.get("ROOST_STATS_GH_REPO", "")
+    sources = narrative_sources(cfg)
     board_dir = cfg.get("ROOST_STATS_BOARD", "")
-    if not slug or not board_dir:
-        print("narrative: ROOST_STATS_GH_REPO/ROOST_STATS_BOARD not configured — skipping")
+    if not sources or not board_dir:
+        print("narrative: no narrative repos / ROOST_STATS_BOARD not configured — skipping")
         return 0
     board_path = lib.site_dir(cfg) / board_dir / "board.json"
     if not board_path.exists():
@@ -140,9 +174,20 @@ def main():
     days = int(cfg.get("ROOST_NARRATIVE_DAYS", "2"))
     limit = int(cfg.get("ROOST_NARRATIVE_MAX", "20"))
 
-    prs = pick_window(merged_prs(slug, base), days)
+    # One repo being unreachable must not blank the timeline for the others.
+    collected = []
+    for slug, label in sources:
+        try:
+            for pr in merged_prs(slug, base):
+                pr["label"] = label
+                collected.append(pr)
+        except Exception as exc:
+            print(f"narrative: {slug} skipped ({str(exc)[:80]})")
+
+    prs = pick_window(collected, days)
     if not prs:
-        print(f"narrative: no merged PRs on {slug} — leaving banner as-is")
+        names = ", ".join(s for s, _ in sources)
+        print(f"narrative: no merged PRs on {names} — leaving banner as-is")
         return 0
 
     board = lib.load_board(board_path)

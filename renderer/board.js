@@ -663,8 +663,31 @@
 
   // ---- header + top-level render -----------------------------------------
 
+  // The board asserts its own freshness. Every tile ages honestly at render
+  // time, but nothing said when the BOARD itself had stopped arriving: on
+  // 2026-08-20 the site served a nine-hour-old board whose aging badges read
+  // as "nothing built for days" rather than "delivery is broken". Opt-in via
+  // a board-level `staleAfterMinutes`; generatedAt is the file's Last-Modified,
+  // so a frozen deploy trips this on the next 60s refresh cycle.
+  function staleBanner(data, generatedAt, now = Date.now()) {
+    const mins = Number(data.staleAfterMinutes);
+    if (!Number.isFinite(mins) || mins <= 0 || !generatedAt) return null;
+    const t = Date.parse(generatedAt);
+    if (Number.isNaN(t)) return null;
+    const age = (now - t) / 60_000;
+    if (age <= mins) return null;
+    const h = Math.floor(age / 60);
+    const m = Math.round(age % 60);
+    const ageTxt = h ? `${h}h ${m}m` : `${m}m`;
+    return el("div", { class: "stale-banner", role: "alert" },
+      `⚠ This board is ${ageTxt} old — nothing has deployed since it was generated. ` +
+      "Every age on it is measured from a frozen snapshot.");
+  }
+
   function renderHeader(data, generatedAt) {
     const header = el("header", { class: "top" });
+    const warn = staleBanner(data, generatedAt);
+    if (warn) header.append(warn);
     if (data.eyebrow) header.append(el("p", { class: "eyebrow" }, data.eyebrow));
     header.append(el("h1", null, data.title || "Status"));
     if (data.stamp) header.append(el("div", { class: "stamp mono" }, data.stamp));
@@ -887,7 +910,7 @@
   // drives the renderer headlessly. `module` is undefined in a browser, so the
   // guard makes this a no-op everywhere it actually ships.
   if (typeof module === "object" && module && module.exports) {
-    module.exports = { renderBoard, partitionSections, buildStatTile, init, fmtAge };
+    module.exports = { renderBoard, partitionSections, buildStatTile, init, fmtAge, staleBanner };
   }
 
   if (document.readyState === "loading") {

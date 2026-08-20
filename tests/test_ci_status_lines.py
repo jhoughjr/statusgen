@@ -150,14 +150,34 @@ class ConsoleLinesTest(unittest.TestCase):
         self.assertEqual([ln["status"] for ln in lines], ["cancelled", "success"])
 
     def test_a_superseded_run_says_why_it_has_no_result(self):
-        lib.gh_runs = lambda repo, limit: [self._run("completed", "cancelled")]
+        newer = dict(self._run("completed", "success"), createdAt="2026-07-13T19:10:00Z")
+        cancelled = self._run("completed", "cancelled")
+        lib.gh_runs = lambda repo, limit: [newer, cancelled]
         line = [ln for ln in lib.console_lines([("o/r", "Repo", 4)])
-                if "cmd" not in ln][0]
+                if ln["status"] == "cancelled"][0]
         self.assertIn("superseded", line["meta"])
         # Still carries the trigger, so "superseded · push" reads as one thought.
         self.assertIn("push", line["meta"])
         # Toned down: it is not a failure, and must not read as one.
         self.assertEqual(line["tone"], "none")
+
+    def test_a_lone_cancelled_run_is_not_called_superseded(self):
+        """A timeout or a hand cancel replaced nothing.
+        A 2026-08-19 release timeout read as "a newer push replaced this", so the label now needs a newer run as evidence."""
+        lib.gh_runs = lambda repo, limit: [self._run("completed", "cancelled")]
+        line = [ln for ln in lib.console_lines([("o/r", "Repo", 4)])
+                if "cmd" not in ln][0]
+        self.assertNotIn("superseded", line.get("meta", ""))
+        self.assertEqual(line["status"], "cancelled")
+
+    def test_a_newer_run_on_another_branch_supersedes_nothing(self):
+        newer = dict(self._run("completed", "success"),
+                     createdAt="2026-07-13T19:10:00Z", headBranch="main")
+        cancelled = self._run("completed", "cancelled")
+        lib.gh_runs = lambda repo, limit: [newer, cancelled]
+        line = [ln for ln in lib.console_lines([("o/r", "Repo", 4)])
+                if ln["status"] == "cancelled"][0]
+        self.assertNotIn("superseded", line.get("meta", ""))
 
     def test_a_superseded_run_never_becomes_a_verdict(self):
         """The feed shows it; the tiles must not. CONSOLE_SKIP stays the

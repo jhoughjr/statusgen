@@ -181,6 +181,32 @@ class ConsoleLinesTest(unittest.TestCase):
                 if ln["status"] == "cancelled"][0]
         self.assertNotIn("superseded", line.get("meta", ""))
 
+    def test_a_prefetched_window_costs_no_second_fetch(self):
+        """ci_status fetches each repo once and hands the window to the feed,
+        the tiles, and the ledger."""
+        lib.gh_runs = lambda repo, limit: (_ for _ in ()).throw(AssertionError("fetched twice"))
+        lines = lib.console_lines([("o/r", "Repo", 4)],
+                                  fetched={"o/r": [dict(RUN)]})
+        self.assertEqual(len([ln for ln in lines if "cmd" not in ln]), 1)
+
+    def test_a_cached_runner_name_costs_no_api_call(self):
+        """A run's runner never changes once assigned; the name persists in
+        ~/.cache/statusgen across pushes. This was one REST call per feed row,
+        every push, for runs that finished days ago."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            real_file, real_cache = lib._RUNNER_CACHE_FILE, lib._RUNNER_CACHE
+            real_sh = lib.sh
+            try:
+                lib._RUNNER_CACHE_FILE = f"{d}/runner-names.json"
+                lib._RUNNER_CACHE = None
+                import json as _json
+                _json.dump({"o/r\x1f77": "mini"}, open(lib._RUNNER_CACHE_FILE, "w"))
+                lib.sh = lambda *a, **k: (_ for _ in ()).throw(AssertionError("API called"))
+                self.assertEqual(lib.gh_run_runner("o/r", 77), "mini")
+            finally:
+                lib._RUNNER_CACHE_FILE, lib._RUNNER_CACHE, lib.sh = real_file, real_cache, real_sh
+
     def test_a_push_hours_after_a_timeout_is_not_a_replacement(self):
         """The 2026-08-19 release: the ceiling killed it at 15:00, and the next
         master push came at 20:54. Nothing replaced the dead run - the label

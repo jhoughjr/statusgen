@@ -486,7 +486,32 @@ def apply_self_run(repo, runs, self_run):
     return out
 
 
-_RUNNER_CACHE = {}
+# A run's runner never changes once assigned, so names persist across pushes.
+# Without the file, every push re-paid one REST call per feed row for runs that
+# finished days ago. Only real names persist: an empty answer can mean "still
+# unassigned", so it stays process-local and is asked again next push.
+_RUNNER_CACHE_FILE = os.path.expanduser("~/.cache/statusgen/runner-names.json")
+_RUNNER_CACHE = None
+
+
+def _runner_cache():
+    global _RUNNER_CACHE
+    if _RUNNER_CACHE is None:
+        try:
+            _RUNNER_CACHE = {tuple(k.split("\x1f", 1)): v
+                             for k, v in json.load(open(_RUNNER_CACHE_FILE)).items()}
+        except (OSError, ValueError):
+            _RUNNER_CACHE = {}
+    return _RUNNER_CACHE
+
+
+def _runner_cache_save(cache):
+    try:
+        os.makedirs(os.path.dirname(_RUNNER_CACHE_FILE), exist_ok=True)
+        json.dump({"\x1f".join(k): v for k, v in cache.items() if v},
+                  open(_RUNNER_CACHE_FILE, "w"))
+    except OSError:
+        pass
 
 
 def gh_run_runner(repo, run_id):
@@ -505,15 +530,18 @@ def gh_run_runner(repo, run_id):
     """
     if not run_id:
         return None
+    cache = _runner_cache()
     key = (repo, str(run_id))
-    if key in _RUNNER_CACHE:
-        return _RUNNER_CACHE[key]
+    if key in cache:
+        return cache[key]
     r = sh(["gh", "api", f"repos/{repo}/actions/runs/{run_id}/jobs",
             "-q", ".jobs[0].runner_name // empty"], timeout=20)
     name = r.stdout.strip() if r.returncode == 0 else ""
     # "jimmys-mac-mini" -> "mini"; the shared prefix is noise on every row.
     short = name.rsplit("-", 1)[-1] if name else None
-    _RUNNER_CACHE[key] = short
+    cache[key] = short
+    if short:
+        _runner_cache_save(cache)
     return short
 
 
@@ -538,7 +566,7 @@ def newer_run_exists(run, runs):
     return False
 
 
-def console_lines(sources, self_run=None):
+def console_lines(sources, self_run=None, fetched=None):
     """sources: [(repo, label, limit)] or [(repo, label, limit, logo)] →
     statusgen console-section lines.
 
@@ -564,7 +592,9 @@ def console_lines(sources, self_run=None):
         logo = source[3] if len(source) > 3 else None
         # Over-fetch: on a busy branch many recent runs are still in progress,
         # so pull well past `limit` to still land `limit` rows after filtering.
-        data = gh_runs(repo, max(limit * 6, 30))
+        # A caller that already fetched the repo's window passes it in, so one
+        # push costs one `gh run list` per repo instead of two.
+        data = (fetched or {}).get(repo) or gh_runs(repo, max(limit * 6, 30))
         if data is None:
             continue
         data = apply_self_run(repo, data, self_run)

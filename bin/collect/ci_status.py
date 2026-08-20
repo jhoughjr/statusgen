@@ -300,7 +300,16 @@ def main():
     trunks = parse_trunks(cfg)
     # The run we are executing inside, if CI told us — see lib.self_run_from.
     self_run = lib.self_run_from(cfg)
-    lines = lib.console_lines(sources, self_run=self_run)
+    # One `gh run list` per repo per push. The feed, the tiles, and the ledger
+    # all read from this window; each takes a shallow copy because
+    # apply_self_run runs once per consumer.
+    window = {}
+    for repo, _, _, _ in sources:
+        runs = lib.gh_runs(repo, 40)
+        if runs:
+            window[repo] = runs
+    lines = lib.console_lines(sources, self_run=self_run,
+                              fetched={r: list(v) for r, v in window.items()})
     if not lines:
         print("ci-status: no CI data (gh unavailable?) — leaving board as-is")
         return 0
@@ -329,9 +338,10 @@ def main():
     # only a trunk can answer that. See TRUNKS_DEFAULT.
     ledger_sources = []
     for repo, label, _, logo in sources:
-        runs = lib.gh_runs(repo, 40)
+        runs = window.get(repo)
         if not runs:
             continue
+        runs = list(runs)
         # Same blind spot as the feed: without this the tiles would be decided
         # from a window in which the current run has no verdict yet, so a green
         # trunk build could not mark itself green.

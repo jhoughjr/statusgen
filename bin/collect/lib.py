@@ -340,7 +340,7 @@ def gh_runs(repo, limit):
     # commit a repo was last green at. Extra fields are ignored by every other
     # caller, so this stays a superset rather than a second fetch.
     r = sh(["gh", "run", "list", "--repo", repo, "--limit", str(limit),
-            "--json", "status,conclusion,headBranch,event,createdAt,url,headSha,databaseId"])
+            "--json", "status,conclusion,headBranch,event,createdAt,url,headSha,databaseId,workflowName"])
     if r.returncode != 0:
         return None
     try:
@@ -517,6 +517,21 @@ def gh_run_runner(repo, run_id):
     return short
 
 
+def newer_run_exists(run, runs):
+    """A newer run on the same branch and workflow is the only evidence that this run was superseded.
+    Without one, a cancelled run keeps its plain label, because a timeout or a hand cancel replaced nothing."""
+    for other in runs:
+        if other is run:
+            continue
+        if other.get("headBranch") != run.get("headBranch"):
+            continue
+        if other.get("workflowName") != run.get("workflowName"):
+            continue
+        if (other.get("createdAt") or "") > (run.get("createdAt") or ""):
+            return True
+    return False
+
+
 def console_lines(sources, self_run=None):
     """sources: [(repo, label, limit)] or [(repo, label, limit, logo)] →
     statusgen console-section lines.
@@ -566,12 +581,11 @@ def console_lines(sources, self_run=None):
             if logo:
                 line["logo"] = logo
             event = r.get("event", "")
-            # Say WHY a run has no result, rather than showing a bare
-            # "cancelled" the reader has to account for. Almost always this is
-            # `cancel-in-progress` retiring a run because a newer push landed —
-            # the push happened, the build did not finish, and both facts
-            # belong in a feed that claims to show what happened.
-            if state == "cancelled":
+            # Say WHY a run has no result, rather than showing a bare "cancelled" the reader has to account for.
+            # A `cancel-in-progress` retirement leaves a newer run on the same branch and workflow, so that newer run is the required evidence.
+            # A timeout or a hand cancel leaves no newer run.
+            # The old label called those "superseded" too, and a 2026-08-19 release timeout read as "a newer push replaced this".
+            if state == "cancelled" and newer_run_exists(r, data):
                 line["meta"] = f"· superseded · {event}" if event else "· superseded"
             elif event:
                 line["meta"] = f"· {event}"

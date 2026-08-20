@@ -340,7 +340,7 @@ def gh_runs(repo, limit):
     # commit a repo was last green at. Extra fields are ignored by every other
     # caller, so this stays a superset rather than a second fetch.
     r = sh(["gh", "run", "list", "--repo", repo, "--limit", str(limit),
-            "--json", "status,conclusion,headBranch,event,createdAt,url,headSha,databaseId,workflowName"])
+            "--json", "status,conclusion,headBranch,event,createdAt,updatedAt,url,headSha,databaseId,workflowName"])
     if r.returncode != 0:
         return None
     try:
@@ -518,8 +518,13 @@ def gh_run_runner(repo, run_id):
 
 
 def newer_run_exists(run, runs):
-    """A newer run on the same branch and workflow is the only evidence that this run was superseded.
-    Without one, a cancelled run keeps its plain label, because a timeout or a hand cancel replaced nothing."""
+    """A newer run on the same branch and workflow is the only evidence that this run was superseded,
+    and it must have started while this run was still in progress - that is what cancel-in-progress does.
+    A push hours after a timeout is not a replacement, and without `updatedAt` the overlap is unknowable,
+    so both cases keep the plain label."""
+    ended = run.get("updatedAt") or ""
+    if not ended:
+        return False
     for other in runs:
         if other is run:
             continue
@@ -527,7 +532,8 @@ def newer_run_exists(run, runs):
             continue
         if other.get("workflowName") != run.get("workflowName"):
             continue
-        if (other.get("createdAt") or "") > (run.get("createdAt") or ""):
+        started = other.get("createdAt") or ""
+        if (run.get("createdAt") or "") < started <= ended:
             return True
     return False
 

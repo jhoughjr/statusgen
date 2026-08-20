@@ -58,7 +58,7 @@ class LastGreenTile(unittest.TestCase):
     def test_names_the_last_successful_commit_and_when(self):
         lib.gh_runs = lambda repo, limit: RUNS
         board = board_with([{"label": "CI build", "n": "✗", "tone": "you"}])
-        ci_status._last_green_tile(board, "o/r", "Phoenix")
+        ci_status.apply_tiles(board, "o/r", "Phoenix", RUNS, [])
 
         t = tile(board, "Last green")
         self.assertIsNotNone(t)
@@ -77,14 +77,14 @@ class LastGreenTile(unittest.TestCase):
         the board being stale, because the reader cannot tell which half lies."""
         lib.gh_runs = lambda repo, limit: RUNS
         board = board_with([])
-        ci_status._last_green_tile(board, "o/r", "Phoenix")
+        ci_status.apply_tiles(board, "o/r", "Phoenix", RUNS, [])
         self.assertNotIn("ago", tile(board, "Last green")["n"])
 
     def test_survives_a_red_current_build(self):
         """The reason the tile exists: red must not blank out the last good."""
         lib.gh_runs = lambda repo, limit: RUNS
         board = board_with([{"label": "CI build", "n": "✗", "tone": "you"}])
-        ci_status._last_green_tile(board, "o/r", "Phoenix")
+        ci_status.apply_tiles(board, "o/r", "Phoenix", RUNS, [])
 
         self.assertEqual(tile(board, "CI build")["n"], "✗")
         self.assertEqual(tile(board, "Last green")["n"], "4bfbe2b")
@@ -93,29 +93,28 @@ class LastGreenTile(unittest.TestCase):
         """A superseded (cancelled) run is not evidence of anything."""
         lib.gh_runs = lambda repo, limit: RUNS
         board = board_with([])
-        ci_status._last_green_tile(board, "o/r", "Phoenix")
+        ci_status.apply_tiles(board, "o/r", "Phoenix", RUNS, [])
         self.assertNotIn("3711ba0", tile(board, "Last green")["n"])
         self.assertNotIn("80c7a2f", tile(board, "Last green")["n"])
 
     def test_says_none_recent_rather_than_claiming_a_stale_green(self):
-        lib.gh_runs = lambda repo, limit: [r for r in RUNS
-                                           if r["conclusion"] != "success"]
+        runs = [r for r in RUNS if r["conclusion"] != "success"]
         board = board_with([])
-        ci_status._last_green_tile(board, "o/r", "Phoenix")
+        ci_status.apply_tiles(board, "o/r", "Phoenix", runs, [])
         self.assertEqual(tile(board, "Last green")["n"], "none recent")
         self.assertEqual(tile(board, "Last green")["tone"], "you")
 
-    def test_gh_unavailable_leaves_the_board_alone(self):
-        """statusgen's collector contract: any failure → board untouched."""
-        lib.gh_runs = lambda repo, limit: None
+    def test_an_empty_window_leaves_the_board_alone(self):
+        """statusgen's collector contract: absent data → board untouched.
+        (main() already skips the whole pass when gh returns nothing.)"""
         board = board_with([])
-        ci_status._last_green_tile(board, "o/r", "Phoenix")
+        ci_status.apply_tiles(board, "o/r", "Phoenix", [], [])
         self.assertEqual(columns(board)[0]["items"], [])
 
     def test_writes_only_to_its_own_column(self):
         lib.gh_runs = lambda repo, limit: RUNS
         board = board_with([])
-        ci_status._last_green_tile(board, "o/r", "Phoenix")
+        ci_status.apply_tiles(board, "o/r", "Phoenix", RUNS, [])
         self.assertEqual(columns(board)[1]["items"], [])
 
     def test_is_idempotent(self):
@@ -123,7 +122,7 @@ class LastGreenTile(unittest.TestCase):
         lib.gh_runs = lambda repo, limit: RUNS
         board = board_with([])
         for _ in range(3):
-            ci_status._last_green_tile(board, "o/r", "Phoenix")
+            ci_status.apply_tiles(board, "o/r", "Phoenix", RUNS, [])
         labels = [i["label"] for i in columns(board)[0]["items"]]
         self.assertEqual(labels.count("Last green"), 1)
 

@@ -151,7 +151,8 @@ class ConsoleLinesTest(unittest.TestCase):
 
     def test_a_superseded_run_says_why_it_has_no_result(self):
         newer = dict(self._run("completed", "success"), createdAt="2026-07-13T19:10:00Z")
-        cancelled = self._run("completed", "cancelled")
+        cancelled = dict(self._run("completed", "cancelled"),
+                         updatedAt="2026-07-13T19:12:00Z")
         lib.gh_runs = lambda repo, limit: [newer, cancelled]
         line = [ln for ln in lib.console_lines([("o/r", "Repo", 4)])
                 if ln["status"] == "cancelled"][0]
@@ -173,8 +174,24 @@ class ConsoleLinesTest(unittest.TestCase):
     def test_a_newer_run_on_another_branch_supersedes_nothing(self):
         newer = dict(self._run("completed", "success"),
                      createdAt="2026-07-13T19:10:00Z", headBranch="main")
-        cancelled = self._run("completed", "cancelled")
+        cancelled = dict(self._run("completed", "cancelled"),
+                         updatedAt="2026-07-13T19:12:00Z")
         lib.gh_runs = lambda repo, limit: [newer, cancelled]
+        line = [ln for ln in lib.console_lines([("o/r", "Repo", 4)])
+                if ln["status"] == "cancelled"][0]
+        self.assertNotIn("superseded", line.get("meta", ""))
+
+    def test_a_push_hours_after_a_timeout_is_not_a_replacement(self):
+        """The 2026-08-19 release: the ceiling killed it at 15:00, and the next
+        master push came at 20:54. Nothing replaced the dead run - the label
+        needs the newer run to have STARTED while this one was in progress,
+        because that is the only thing cancel-in-progress can mean."""
+        cancelled = dict(self._run("completed", "cancelled"),
+                         createdAt="2026-07-13T13:00:00Z",
+                         updatedAt="2026-07-13T15:00:00Z")
+        later = dict(self._run("completed", "success"),
+                     createdAt="2026-07-13T20:54:00Z")
+        lib.gh_runs = lambda repo, limit: [later, cancelled]
         line = [ln for ln in lib.console_lines([("o/r", "Repo", 4)])
                 if ln["status"] == "cancelled"][0]
         self.assertNotIn("superseded", line.get("meta", ""))

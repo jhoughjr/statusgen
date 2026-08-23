@@ -104,9 +104,9 @@ const board = () => ({
   staleAfterMinutes: 30,
   sections: [
     { kind: "stats", items: [{ n: "1", label: "hero" }] },
-    { kind: "cards", title: "Alpha", items: [{ q: "a" }] },
-    { kind: "cards", title: "Beta", items: [{ q: "b" }] },
-    { kind: "cards", title: "Gamma", items: [{ q: "g" }] },
+    { kind: "cards", title: "Alpha", items: [{ q: "alpha-card" }] },
+    { kind: "cards", title: "Beta", items: [{ q: "beta-card" }] },
+    { kind: "cards", title: "Gamma", items: [{ q: "gamma-card" }] },
   ],
 });
 
@@ -161,8 +161,8 @@ await (async () => {
   h.api.init();
   await settle(); await settle();
   const text = h.root.textContent;
-  assert.ok(text.includes("Alpha"), "Alpha renders");
-  assert.ok(!text.includes("Beta"), "Beta is hidden by config");
+  assert.ok(text.includes("alpha-card"), "Alpha renders");
+  assert.ok(!text.includes("beta-card"), "Beta is hidden by config");
   console.log("✓ init applies the sibling config.json");
   passed++;
 
@@ -172,8 +172,8 @@ await (async () => {
   h.tick();
   await settle(); await settle();
   const after = h.root.textContent;
-  assert.ok(after.includes("Beta"), "Beta is back");
-  assert.ok(!after.includes("Alpha"), "Alpha is hidden now");
+  assert.ok(after.includes("beta-card"), "Beta is back");
+  assert.ok(!after.includes("alpha-card"), "Alpha is hidden now");
   console.log("✓ a config-only change lands on the refresh cycle");
   passed++;
 })();
@@ -182,7 +182,7 @@ await (async () => {
   const h = load({ files: { "board.json": board() } });
   h.api.init();
   await settle(); await settle();
-  assert.ok(h.root.textContent.includes("Beta"), "no config file, full board");
+  assert.ok(h.root.textContent.includes("beta-card"), "no config file, full board");
   console.log("✓ a missing config.json costs nothing");
   passed++;
 })();
@@ -191,7 +191,7 @@ await (async () => {
   const h = load({ files: { "board.json": board(), "config.json": "{not json" } });
   h.api.init();
   await settle(); await settle();
-  assert.ok(h.root.textContent.includes("Beta"), "unparseable config is ignored");
+  assert.ok(h.root.textContent.includes("beta-card"), "unparseable config is ignored");
   console.log("✓ an unparseable config.json is ignored, never fatal");
   passed++;
 })();

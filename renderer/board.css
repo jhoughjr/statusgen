@@ -253,3 +253,13 @@ footer .paths { display: grid; gap: 0.6rem; }
   border: 1px solid var(--you); background: var(--you-bg); color: var(--you);
   font-weight: 600;
 }
+
+/* section panel — the viewer's own show/hide, layered over config.json */
+.gear { background: none; border: none; color: var(--accent); font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer; padding: 0; }
+.gear:hover { text-decoration: underline; }
+.gear.overridden { color: var(--you); }
+.section-panel { margin-top: 0.6rem; padding: 10px 14px; border: 1px solid var(--hair); border-radius: 8px; background: var(--panel); display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
+.section-panel[hidden] { display: none; }
+.section-panel-row { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; cursor: pointer; }
+.section-panel-reset { margin-top: 6px; align-self: flex-start; background: none; border: 1px solid var(--hair); border-radius: 6px; color: var(--ink-soft); font: inherit; font-size: 0.75rem; padding: 3px 8px; cursor: pointer; }
+.section-panel-reset:hover { color: var(--ink); }

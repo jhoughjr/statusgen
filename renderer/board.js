@@ -847,6 +847,45 @@
     container.append(el("p", { class: "board-error" }, message));
   }
 
+  // ---- per-board config ---------------------------------------------------
+  // `config.json`, a sibling of `board.json`, is the settings file no collector
+  // regenerates. Everything in board.json is derived data the pipeline rewrites
+  // wholesale — a hand edit there (the clauffice `staleAfterMinutes`) survived
+  // exactly until the next scheduled run steamrolled it. Settings that must
+  // outlive regeneration live here instead:
+  //   { "staleAfterMinutes": 60, "hide": ["Section title"], "order": ["A", "B"] }
+  // Sections are addressed by TITLE, same as tabs and for the same reason:
+  // collectors replace sections wholesale, so a key stored on a section would
+  // be wiped within the hour. Untitled sections (the hero row, the banner)
+  // cannot be hidden or moved — the failure mode stays "it shows up".
+  function applyConfig(data, config) {
+    if (!config || typeof config !== "object") return data;
+    const out = { ...data };
+    if (Number.isFinite(Number(config.staleAfterMinutes))) {
+      out.staleAfterMinutes = Number(config.staleAfterMinutes);
+    }
+    let sections = Array.isArray(out.sections) ? out.sections.slice() : [];
+    const hide = new Set(Array.isArray(config.hide) ? config.hide : []);
+    if (hide.size) {
+      sections = sections.filter((s) => !(s && s.title && hide.has(s.title)));
+    }
+    const order = Array.isArray(config.order) ? config.order : [];
+    if (order.length) {
+      // `order` reorders only the sections it names, within the slots those
+      // sections already occupy — an unlisted section (a new collector's, the
+      // hero row) keeps its place instead of being shoved to one end.
+      const rank = new Map(order.map((t, i) => [t, i]));
+      const slots = [];
+      sections.forEach((s, i) => { if (s && rank.has(s.title)) slots.push(i); });
+      const listed = slots
+        .map((i) => sections[i])
+        .sort((a, b) => rank.get(a.title) - rank.get(b.title));
+      slots.forEach((i, j) => { sections[i] = listed[j]; });
+    }
+    out.sections = sections;
+    return out;
+  }
+
   // How often an open tab re-checks the board.
   //
   // The board used to be fetched exactly once, at boot, so a tab left open was
@@ -865,23 +904,45 @@
     let lastSeen = null;
     let failures = 0;
 
+    // The board's settings file rides the same refresh cycle, so an edit to
+    // config.json lands within a minute, like any board change. A missing or
+    // unreadable config is the common case and costs nothing: the board
+    // renders exactly as board.json says.
+    const cfgSrc = src.replace(/board\.json$/, "config.json");
+    const loadConfig = () =>
+      cfgSrc === src
+        ? Promise.resolve(null)
+        : fetch(cfgSrc, { cache: "no-cache" })
+            .then((r) => (r.ok ? r.text() : null))
+            .catch(() => null);
+
     const load = (isRefresh) =>
-      fetch(src, { cache: "no-cache" })
-        .then((res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          const generatedAt = res.headers.get("Last-Modified");
-          return res.text().then((text) => ({ text, generatedAt }));
-        })
-        .then(({ text, generatedAt }) => {
+      Promise.all([
+        fetch(src, { cache: "no-cache" })
+          .then((res) => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const generatedAt = res.headers.get("Last-Modified");
+            return res.text().then((text) => ({ text, generatedAt }));
+          }),
+        loadConfig(),
+      ])
+        .then(([{ text, generatedAt }, cfgText]) => {
           failures = 0;
           // Compare the payload itself rather than Last-Modified: a CDN in
           // front of the site can rewrite or omit that header, and being wrong
           // here means silently never updating again — the exact bug this
           // exists to fix.
-          if (isRefresh && text === lastSeen) return;
-          lastSeen = text;
-          renderBoard(JSON.parse(text), container, generatedAt);
-          maybeAddHistoryLink(container, JSON.parse(text));
+          const seen = `${text} ${cfgText || ""}`;
+          if (isRefresh && seen === lastSeen) return;
+          lastSeen = seen;
+          let config = null;
+          if (cfgText) {
+            try { config = JSON.parse(cfgText); }
+            catch (_) { console.warn(`statusgen: ${cfgSrc} is not valid JSON — ignored`); }
+          }
+          const data = applyConfig(JSON.parse(text), config);
+          renderBoard(data, container, generatedAt);
+          maybeAddHistoryLink(container, data);
         })
         .catch((err) => {
           // A refresh that fails leaves the board that is already on screen —
@@ -910,7 +971,7 @@
   // drives the renderer headlessly. `module` is undefined in a browser, so the
   // guard makes this a no-op everywhere it actually ships.
   if (typeof module === "object" && module && module.exports) {
-    module.exports = { renderBoard, partitionSections, buildStatTile, init, fmtAge, staleBanner };
+    module.exports = { renderBoard, partitionSections, buildStatTile, init, fmtAge, staleBanner, applyConfig };
   }
 
   if (document.readyState === "loading") {

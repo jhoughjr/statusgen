@@ -9,6 +9,11 @@
 (function () {
   "use strict";
 
+  // Our own URL, captured now — inside init() document.currentScript is
+  // already null. The self-update watch below fetches this to notice a
+  // renderer deploy from an open tab.
+  const SCRIPT_SRC = (typeof document === "object" && document.currentScript && document.currentScript.src) || "";
+
   // ---- tiny DOM helpers -----------------------------------------------
 
   // el(tag, attrs, children) — children may be a string, a Node, or an
@@ -1097,16 +1102,38 @@
           else if (++failures === 1) console.warn(`board refresh failed: ${err.message}`);
         });
 
+    // The page can outlive its own code. A wall tab refetches board.json
+    // every minute but never board.js, so a renderer deploy reaches every
+    // fresh visit and not one open tab — four renderer changes shipped on
+    // 2026-08-23 and the standing tab showed none of them. Watch our own
+    // script on the same cycle and swap the page for the new code when it
+    // changes. Text compare, same as the board: headers lie behind CDNs.
+    // The first successful fetch seeds the baseline; only a later change
+    // reloads, so a mid-deploy boot cannot loop.
+    let rendererSeen = null;
+    const checkRenderer = () => {
+      if (!SCRIPT_SRC || typeof location.reload !== "function") return;
+      fetch(SCRIPT_SRC, { cache: "no-cache" })
+        .then((r) => (r.ok ? r.text() : null))
+        .then((body) => {
+          if (!body) return;
+          if (rendererSeen == null) rendererSeen = body;
+          else if (body !== rendererSeen) location.reload();
+        })
+        .catch(() => {});
+    };
+
     load(false);
+    checkRenderer();
 
     if (typeof setInterval === "function") {
-      setInterval(() => load(true), REFRESH_MS);
+      setInterval(() => { load(true); checkRenderer(); }, REFRESH_MS);
     }
     // A tab that has been in the background for hours is the worst offender:
     // catch it up the moment it is looked at, rather than up to a minute later.
     if (typeof document.addEventListener === "function") {
       document.addEventListener("visibilitychange", () => {
-        if (!document.hidden) load(true);
+        if (!document.hidden) { load(true); checkRenderer(); }
       });
     }
   }

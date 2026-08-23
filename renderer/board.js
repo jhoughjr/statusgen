@@ -858,14 +858,29 @@
   // collectors replace sections wholesale, so a key stored on a section would
   // be wiped within the hour. Untitled sections (the hero row, the banner)
   // cannot be hidden or moved — the failure mode stays "it shows up".
-  function applyConfig(data, config) {
-    if (!config || typeof config !== "object") return data;
+  // The board's hidden set once the viewer has had their say: config.hide is
+  // the canonical default, and a viewer override flips one title either way —
+  // so a viewer can reveal a section the config hides, not just hide more.
+  function effectiveHidden(config, prefs) {
+    const hide = new Set(config && Array.isArray(config.hide) ? config.hide : []);
+    const overrides = prefs && prefs.overrides && typeof prefs.overrides === "object"
+      ? prefs.overrides : {};
+    for (const [title, want] of Object.entries(overrides)) {
+      if (want === "hide") hide.add(title);
+      else if (want === "show") hide.delete(title);
+    }
+    return hide;
+  }
+
+  function applyConfig(data, config, prefs) {
+    if ((!config || typeof config !== "object") && !prefs) return data;
+    config = config && typeof config === "object" ? config : {};
     const out = { ...data };
     if (Number.isFinite(Number(config.staleAfterMinutes))) {
       out.staleAfterMinutes = Number(config.staleAfterMinutes);
     }
     let sections = Array.isArray(out.sections) ? out.sections.slice() : [];
-    const hide = new Set(Array.isArray(config.hide) ? config.hide : []);
+    const hide = effectiveHidden(config, prefs);
     if (hide.size) {
       sections = sections.filter((s) => !(s && s.title && hide.has(s.title)));
     }
@@ -886,6 +901,114 @@
     return out;
   }
 
+  // ---- viewer prefs -------------------------------------------------------
+  // Per-viewer show/hide overrides, one localStorage entry per board path.
+  // This is a per-browser convenience layered over config.json, never the
+  // canonical state: clearing site data, another device, or a private window
+  // all come up on the board's declared default. Every storage touch is
+  // guarded — some contexts (previews, blocked site data) throw on access.
+  function prefsKey() {
+    return `sgen:sections:${location.pathname}`;
+  }
+
+  function loadPrefs() {
+    try {
+      const raw = localStorage.getItem(prefsKey());
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch (_) { return null; }
+  }
+
+  function savePrefs(prefs) {
+    try {
+      const overrides = prefs && prefs.overrides ? prefs.overrides : {};
+      if (Object.keys(overrides).length) localStorage.setItem(prefsKey(), JSON.stringify(prefs));
+      else localStorage.removeItem(prefsKey());
+    } catch (_) { /* per-viewer convenience — losing it must never break the board */ }
+  }
+
+  // One toggle, expressed against the board's default so the stored set stays
+  // minimal: an override that agrees with the default is dropped, and a prefs
+  // object with no overrides left deletes its storage entry entirely.
+  function togglePref(prefs, title, visible, config) {
+    const overrides = { ...(prefs && prefs.overrides ? prefs.overrides : {}) };
+    const defaultHidden = new Set(config && Array.isArray(config.hide) ? config.hide : []);
+    const want = visible ? "show" : "hide";
+    const isDefault = visible !== defaultHidden.has(title);
+    if (isDefault) delete overrides[title];
+    else overrides[title] = want;
+    return { overrides };
+  }
+
+  // ---- the section panel --------------------------------------------------
+  // A ⚙ button in the header nav, opening a checkbox list of every titled
+  // section. Unchecking hides the section for THIS viewer only; a section the
+  // board's config.json hides shows here unchecked, so it can be revealed the
+  // same way. Untitled sections (the hero row, the banner) have no address and
+  // do not appear — they always render.
+  // `ui` carries {open, setOpen, onChange}: the open flag lives in init()'s
+  // closure because a checkbox change re-renders the whole board, and a panel
+  // that snapped shut on every toggle would make multi-section edits a chore.
+  function sectionPanel(board, config, ui) {
+    const prefs = loadPrefs();
+    const hidden = effectiveHidden(config, prefs);
+    const titles = (Array.isArray(board.sections) ? board.sections : [])
+      .map((s) => s && s.title)
+      .filter(Boolean);
+    if (!titles.length) return null;
+
+    const panel = el("div", { class: "section-panel", hidden: ui.open ? null : "" });
+    for (const title of titles) {
+      const box = el("input", { type: "checkbox", checked: hidden.has(title) ? null : "" });
+      box.addEventListener("change", () => {
+        savePrefs(togglePref(loadPrefs(), title, !!box.checked, config));
+        ui.onChange();
+      });
+      panel.append(el("label", { class: "section-panel-row" }, [box, ` ${title}`]));
+    }
+    const hasOverrides = prefs && prefs.overrides && Object.keys(prefs.overrides).length;
+    if (hasOverrides) {
+      const reset = el("button", { class: "section-panel-reset", type: "button" }, "reset to board default");
+      reset.addEventListener("click", () => { savePrefs(null); ui.onChange(); });
+      panel.append(reset);
+    }
+
+    const gear = el("button", {
+      class: `gear${hasOverrides ? " overridden" : ""}`,
+      type: "button",
+      title: "choose which sections this browser shows",
+      "aria-label": "section settings",
+    }, hasOverrides ? "⚙ sections*" : "⚙ sections");
+    gear.addEventListener("click", () => {
+      const open = !!panel.hidden;
+      ui.setOpen(open);
+      if (open) panel.removeAttribute("hidden");
+      else panel.hidden = true;
+    });
+    return { gear, panel };
+  }
+
+  // The header nav, found by walk rather than querySelector so the test DOM
+  // stub does not need a selector engine.
+  function findHeaderNav(container) {
+    for (const child of container.children || []) {
+      if (child.tagName !== "HEADER") continue;
+      for (const kid of child.children || []) {
+        if (String(kid.getAttribute && kid.getAttribute("class") || "").includes("board-links")) return kid;
+      }
+    }
+    return null;
+  }
+
+  function attachSectionPanel(container, board, config, ui) {
+    const nav = findHeaderNav(container);
+    if (!nav) return;
+    const built = sectionPanel(board, config, ui);
+    if (!built) return;
+    nav.append(built.gear);
+    nav.append(built.panel);
+  }
+
   // How often an open tab re-checks the board.
   //
   // The board used to be fetched exactly once, at boot, so a tab left open was
@@ -903,6 +1026,33 @@
     // would throw that away and make the tab unusable.
     let lastSeen = null;
     let failures = 0;
+
+    // The last fetched payloads, kept so a viewer-pref change re-renders
+    // without a refetch. `panelOpen` lives here so the panel survives the
+    // re-render each toggle causes.
+    let cached = null;
+    let panelOpen = false;
+    const panelUi = {
+      get open() { return panelOpen; },
+      setOpen: (v) => { panelOpen = v; },
+      onChange: () => renderFrom(),
+    };
+
+    function renderFrom() {
+      if (!cached) return;
+      let config = null;
+      if (cached.cfgText) {
+        try { config = JSON.parse(cached.cfgText); }
+        catch (_) { console.warn(`statusgen: ${cfgSrc} is not valid JSON — ignored`); }
+      }
+      const board = JSON.parse(cached.text);
+      const data = applyConfig(board, config, loadPrefs());
+      renderBoard(data, container, cached.generatedAt);
+      // The panel is built from the UNfiltered board, so a hidden section
+      // stays listed and can be revealed again.
+      attachSectionPanel(container, board, config, panelUi);
+      maybeAddHistoryLink(container, data);
+    }
 
     // The board's settings file rides the same refresh cycle, so an edit to
     // config.json lands within a minute, like any board change. A missing or
@@ -932,17 +1082,11 @@
           // front of the site can rewrite or omit that header, and being wrong
           // here means silently never updating again — the exact bug this
           // exists to fix.
-          const seen = `${text} ${cfgText || ""}`;
+          const seen = `${text}\u0000${cfgText || ""}`;
           if (isRefresh && seen === lastSeen) return;
           lastSeen = seen;
-          let config = null;
-          if (cfgText) {
-            try { config = JSON.parse(cfgText); }
-            catch (_) { console.warn(`statusgen: ${cfgSrc} is not valid JSON — ignored`); }
-          }
-          const data = applyConfig(JSON.parse(text), config);
-          renderBoard(data, container, generatedAt);
-          maybeAddHistoryLink(container, data);
+          cached = { text, cfgText, generatedAt };
+          renderFrom();
         })
         .catch((err) => {
           // A refresh that fails leaves the board that is already on screen —
@@ -971,7 +1115,18 @@
   // drives the renderer headlessly. `module` is undefined in a browser, so the
   // guard makes this a no-op everywhere it actually ships.
   if (typeof module === "object" && module && module.exports) {
-    module.exports = { renderBoard, partitionSections, buildStatTile, init, fmtAge, staleBanner, applyConfig };
+    module.exports = {
+      renderBoard,
+      partitionSections,
+      buildStatTile,
+      init,
+      fmtAge,
+      staleBanner,
+      applyConfig,
+      effectiveHidden,
+      togglePref,
+      sectionPanel,
+    };
   }
 
   if (document.readyState === "loading") {

@@ -79,6 +79,8 @@ The renderer fetches it on the board's own 60s refresh cycle and applies it over
 
 `bin/validate-board.py` visits each board's sibling `config.json` in the same sweep and warns (never fails) on a typo'd key, a wrong type, or a title no section carries. The renderer ignores all of those silently, which is the safe failure and also the one this sweep exists to name.
 
+**The viewer's layer.** Every board also carries a ⚙ **sections** control in its header nav: a checkbox per titled section, so one viewer can hide sections they never read — or reveal one the config hides. These overrides live in that browser's `localStorage`, keyed by board path, and are never canonical: a private window, cleared site data, or another device comes up on the board's declared default. The gear shows `⚙ sections*` while overrides are active, and the panel offers a reset back to the default. Only disagreement with the default is stored, so a viewer who toggles back to the declared state carries no entry at all.
+
 ## Section kinds
 
 Each section is `{ "kind": "...", ... }`. Supported kinds:

@@ -18,8 +18,8 @@ Non-fatal by contract: no config → skip; any failure → board untouched, exit
 """
 import json
 import pathlib
+import subprocess
 import sys
-import urllib.request
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import lib
@@ -77,14 +77,20 @@ def main():
     if not board_path.exists():
         print("hatchery-stacks: {} not found — skipping".format(board_path))
         return 0
-    request = urllib.request.Request(url.rstrip("/") + "/api/status")
+    # Through curl rather than urllib: macOS grants Local Network access per binary, and
+    # on the mini homebrew's python is denied while curl is allowed — the same flap that
+    # gave the board push its ssh hop (roost#65). The pipeline already leans on curl.
+    command = ["curl", "-sfS", "--max-time", "15"]
     token = cfg.get("ROOST_HATCHERY_TOKEN", "")
     if token:
         # serve requires the token whenever it binds off-host, which a polled serve does.
-        request.add_header("X-Hatchery-Token", token)
+        command += ["-H", "X-Hatchery-Token: " + token]
+    command.append(url.rstrip("/") + "/api/status")
     try:
-        with urllib.request.urlopen(request, timeout=15) as answer:
-            payload = json.load(answer)
+        answer = subprocess.run(command, capture_output=True, text=True, timeout=20)
+        if answer.returncode != 0:
+            raise RuntimeError(answer.stderr.strip() or "curl exit {}".format(answer.returncode))
+        payload = json.loads(answer.stdout)
     except Exception as error:  # never break a status push
         print("hatchery-stacks: {} did not answer ({}) — leaving board as-is".format(url, error))
         return 0

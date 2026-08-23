@@ -19,11 +19,15 @@ The renderer reads `board.json`, iterates `sections` in order, and renders each 
   "staleAfterDays": 7,
   "tabs": [ { "id": "now", "label": "Now", "icon": "⚡",
               "sections": ["CI — running now", "Builds"] } ],
-  "sections": [ /* ordered array of section objects, each with a "kind" */ ]
+  "sections": [ { "kind": "banner", "text": "An ordered array of section objects, each with a kind." } ]
 }
 ```
 
 `title` sets `<title>` and the H1. `eyebrow` is the small uppercase kicker. `stamp` is the mono sub-line under the title. `links` (optional) is an array of `{ label, href }` rendered as a header nav row — e.g. a detail page's "← back" or "all history". A board also auto-shows a **History →** link when a sibling `history/board.json` exists.
+
+`staleAfterMinutes` (optional) arms the frozen-board banner: when the `board.json` file itself is older than this many minutes, the renderer shows a full-width warning that every age on the page is measured from a frozen snapshot. Set it a little above the board's refresh cadence (e.g. `60` for a 15-minute pipeline). Without it a stalled deploy reads as "nothing built for days" instead of "delivery is broken".
+
+**The machine spec.** `bin/widgets.schema.json` is this document's enforceable half: one entry per kind, one entry per field, with a type and a severity for each. `bin/validate-board.py` walks it over every board in the deploy sweep, and `tests/test_widget_schema.py` holds the spec, the validator, the renderer's kind list, and every ```json example in this file to the same surface. A field added to the renderer is not done until it is in the spec.
 
 **Tile links** — a `stats` item or a `compare` column item may add `"href"`, which makes the whole tile a link (rendered as an `<a>`, so it keyboard-focuses and middle-clicks normally). A number on a board is the start of a question — "6,591 passed, which ones?" — and the tile is where the reader's eye already is. `collect/test_detail.py` uses this to point the test tiles at a generated `<slug>/tests/` page and the CI-build tile at the run itself.
 
@@ -70,7 +74,8 @@ Each section is `{ "kind": "...", ... }`. Supported kinds:
 { "kind": "compare", "title": "Phoenix ⟷ MWServer", "columns": [
   { "title": "Phoenix — client", "logo": "ts",
     "items": [ { "n": "6605", "label": "Tests green", "tone": "go" } ] },
-  { "title": "MWServer — server", "logo": "swift", "items": [ … ] } ] }
+  { "title": "MWServer — server", "logo": "swift",
+    "items": [ { "n": "1196", "label": "Tests green", "tone": "go" } ] } ] }
 ```
 Each column is a `stats` row under its own heading. Items take the same `n`/`label`/`tone`/`href` as `stats`.
 

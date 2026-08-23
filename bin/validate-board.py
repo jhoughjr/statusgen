@@ -1,12 +1,27 @@
 #!/usr/bin/env python3
-"""Validate board.json files against the statusgen schema basics.
+"""Validate board.json files against the statusgen widget schema.
 Usage: validate-board.py <board.json> [...]   Exits 1 on any invalid board.
-"""
-import json, re, sys
 
-KINDS = {"stats", "banner", "barchart", "pie", "table", "cards", "split",
-         "compare", "console", "live-console"}
+The field surface lives in bin/widgets.schema.json, one entry per kind and one entry per field.
+This script walks that spec and keeps the checks the spec cannot express (banner prose, n-or-ts, tabs).
+A `hard` finding fails the deploy gate. A `soft` finding prints a warning and the board still deploys,
+because `roost status` aborts the whole site deploy on a hard failure, so a new rule must prove itself green on the live boards first.
+"""
+import json, pathlib, re, sys
+
+SPEC = json.load(open(pathlib.Path(__file__).resolve().parent / "widgets.schema.json"))
+KINDS = set(SPEC["kinds"])
 ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# `scalar` covers a value the renderer prints as-is, so both "1196" and 1196 are legal.
+TYPES = {
+    "str": str,
+    "num": (int, float),
+    "bool": bool,
+    "list": list,
+    "obj": dict,
+    "scalar": (str, int, float),
+}
 
 # A banner renders as ONE flat <div> — no headings, no rows, no pills. It is the
 # only kind with nowhere for a reader's eye to land, so it is the only kind that
@@ -52,84 +67,162 @@ def banner_warnings(text):
             "banner prose has no paragraph break — the renderer honours \\n\\n "
             "(white-space: pre-line), so nothing but the text itself is stopping it")
     return out
-fail = 0
-for path in sys.argv[1:]:
-    try:
-        b = json.load(open(path))
-        assert isinstance(b.get("title"), str) and b["title"], "missing title"
-        assert isinstance(b.get("sections"), list), "sections must be a list"
-        if "staleAfterDays" in b:
-            assert isinstance(b["staleAfterDays"], (int, float)), \
-                "staleAfterDays must be a number"
+
+
+def _check_fields(obj, fields, where, errors, warnings):
+    """Walk one object against one `fields` spec: required presence, then type, then any per-element `item` spec."""
+    for name, fs in fields.items():
+        need_hard = fs.get("need") == "hard"
+        if name not in obj:
+            if fs.get("required"):
+                msg = f"{where}: missing {name}"
+                (errors if need_hard else warnings).append(msg)
+            continue
+        val = obj[name]
+        want = TYPES[fs["type"]]
+        # bool is an int subclass in Python, so a bare isinstance check would pass True as a num.
+        mistyped = isinstance(val, bool) and fs["type"] not in ("bool",) or not isinstance(val, want)
+        if mistyped:
+            msg = f"{where}: {name} must be {fs['type']}"
+            (errors if need_hard else warnings).append(msg)
+            continue
+        item_spec = fs.get("item")
+        if item_spec and isinstance(val, list):
+            for j, element in enumerate(val):
+                if not isinstance(element, dict):
+                    warnings.append(f"{where}: {name}[{j}] should be an object")
+                    continue
+                _check_fields(element, item_spec["fields"], f"{where}: {name}[{j}]", errors, warnings)
+
+
+def _check_unknown(obj, known, where, warnings):
+    """The typo catcher: the renderer drops a misspelled field without a sound, so name what it will ignore."""
+    for name in obj:
+        if name not in known:
+            warnings.append(f"{where}: unknown field {name!r} (the renderer ignores it)")
+
+
+def validate_section(s, i, errors, warnings):
+    """One section against its kind's spec plus the checks the spec cannot express."""
+    k = s.get("kind")
+    if k not in KINDS:
+        errors.append(f"section {i}: unknown kind {k!r}")
+        return
+    where = f"section {i} ({k})"
+    common = SPEC["sectionCommon"]["fields"]
+    kind_fields = SPEC["kinds"][k]["fields"]
+    _check_fields(s, common, where, errors, warnings)
+    _check_fields(s, kind_fields, where, errors, warnings)
+    _check_unknown(s, set(common) | set(kind_fields), where, warnings)
+
+    if "asOf" in s:
+        if not (isinstance(s["asOf"], str) and ISO_DATE.match(s["asOf"])):
+            errors.append(f"{where}: asOf must be YYYY-MM-DD")
+    if k == "banner":
+        for w in banner_warnings(s.get("text")):
+            warnings.append(f"{where}: {w}")
+    if k == "stats":
+        for j, it in enumerate(s.get("items") or []):
+            # `ts` (a UTC timestamp the renderer localizes) is an alternative to a pre-formatted `n` value.
+            if isinstance(it, dict) and "n" not in it and "ts" not in it:
+                errors.append(f"{where}: items[{j}] needs n or ts")
+    if k == "cards":
+        # The renderer reads `pill.pill ?? pill.text`, so either key carries the label.
+        for j, it in enumerate(s.get("items") or []):
+            if isinstance(it, dict) and "pill" in it and not (
+                    isinstance(it["pill"], dict) and ("text" in it["pill"] or "pill" in it["pill"])):
+                errors.append(f"{where}: items[{j}]: pill must be {{text|pill, tone}}")
+    if k == "compare":
+        if isinstance(s.get("columns"), list) and not s["columns"]:
+            errors.append(f"{where}: columns must not be empty")
+    if k == "live-console":
+        # Rows arrive at runtime from poll.url, so no `lines` here — just
+        # a reachable endpoint the renderer can fetch.
+        p = s.get("poll")
+        if isinstance(p, dict) and not (isinstance(p.get("url"), str) and p["url"]):
+            errors.append(f"{where}: live-console needs poll.url")
+
+
+def validate_tabs(b, errors, warnings, notes):
+    """tabs — optional section grouping, keyed by section title. Structure is
+    a hard gate; a claimed title that isn't present is only a warning,
+    because a tab may legitimately name a section no collector has seeded
+    yet, and the renderer falls back to showing it pinned either way."""
+    seen_ids, claimed = set(), {}
+    titles = {s.get("title") for s in b.get("sections", []) if isinstance(s, dict) and s.get("title")}
+    for j, t in enumerate(b["tabs"]):
+        if not isinstance(t, dict):
+            errors.append(f"tab {j}: must be an object")
+            continue
+        tid = t.get("id")
+        if not (isinstance(tid, str) and tid):
+            errors.append(f"tab {j}: needs a non-empty id")
+            continue
+        if tid in seen_ids:
+            errors.append(f"tab {j}: duplicate id {tid!r}")
+            continue
+        seen_ids.add(tid)
+        if not (isinstance(t.get("label"), str) and t["label"]):
+            errors.append(f"tab {tid}: needs a non-empty label")
+        if not isinstance(t.get("sections"), list):
+            errors.append(f"tab {tid}: sections must be a list")
+            continue
+        for title in t["sections"]:
+            if not isinstance(title, str):
+                errors.append(f"tab {tid}: section titles must be strings")
+                continue
+            if title in claimed:
+                errors.append(f"tab {tid}: {title!r} already claimed by tab {claimed[title]!r}")
+                continue
+            claimed[title] = tid
+            if title not in titles:
+                warnings.append(f"tab {tid!r} claims absent section {title!r}")
+    for title in sorted(titles - set(claimed)):
+        notes.append(f"section {title!r} is in no tab (renders pinned)")
+
+
+def validate_board(b):
+    """Every finding for one parsed board, split by consequence:
+    errors fail the gate, warnings print, notes are informational."""
+    errors, warnings, notes = [], [], []
+    if not isinstance(b, dict):
+        return ["board must be an object"], warnings, notes
+    board_fields = SPEC["board"]["fields"]
+    _check_fields(b, board_fields, "board", errors, warnings)
+    _check_unknown(b, set(board_fields), "board", warnings)
+    if isinstance(b.get("sections"), list):
         for i, s in enumerate(b["sections"]):
-            k = s.get("kind")
-            assert k in KINDS, f"section {i}: unknown kind {k!r}"
-            if "asOf" in s:
-                assert isinstance(s["asOf"], str) and ISO_DATE.match(s["asOf"]), \
-                    f"section {i}: asOf must be YYYY-MM-DD"
-            if k == "banner":
-                for w in banner_warnings(s.get("text")):
-                    print(f"  ! {path}: section {i}: {w}")
-            if k == "stats":
-                for it in s.get("items", []):
-                    # `ts` (a UTC timestamp the renderer localizes) is an
-                    # alternative to a pre-formatted `n` value.
-                    assert ("n" in it or "ts" in it) and "label" in it, \
-                        f"section {i}: stats items need n-or-ts + label"
-            if k == "cards":
-                for it in s.get("items", []):
-                    assert "q" in it, f"section {i}: cards items need q"
-                    if "pill" in it:
-                        assert isinstance(it["pill"], dict) and "text" in it["pill"], \
-                            f"section {i}: pill must be {{text, tone}}"
-            if k == "split":
-                assert "columns" in s, f"section {i}: split needs columns"
-            if k == "compare":
-                assert isinstance(s.get("columns"), list) and s["columns"], \
-                    f"section {i}: compare needs columns"
-                for c in s["columns"]:
-                    for it in c.get("items", []):
-                        assert "n" in it and "label" in it, \
-                            f"section {i}: compare items need n+label"
-            if k == "console":
-                assert isinstance(s.get("lines"), list), f"section {i}: console needs lines"
-                for ln in s["lines"]:
-                    assert "text" in ln, f"section {i}: console lines need text"
-            if k == "live-console":
-                # Rows arrive at runtime from poll.url, so no `lines` here — just
-                # a reachable endpoint the renderer can fetch.
-                p = s.get("poll")
-                assert isinstance(p, dict) and isinstance(p.get("url"), str) and p["url"], \
-                    f"section {i}: live-console needs poll.url"
-        # tabs — optional section grouping, keyed by section title. Structure is
-        # a hard gate; a claimed title that isn't present is only a warning,
-        # because a tab may legitimately name a section no collector has seeded
-        # yet, and the renderer falls back to showing it pinned either way.
-        if "tabs" in b:
-            assert isinstance(b["tabs"], list), "tabs must be a list"
-            seen_ids, claimed = set(), {}
-            titles = {s.get("title") for s in b["sections"] if s.get("title")}
-            for j, t in enumerate(b["tabs"]):
-                assert isinstance(t, dict), f"tab {j}: must be an object"
-                tid = t.get("id")
-                assert isinstance(tid, str) and tid, f"tab {j}: needs a non-empty id"
-                assert tid not in seen_ids, f"tab {j}: duplicate id {tid!r}"
-                seen_ids.add(tid)
-                assert isinstance(t.get("label"), str) and t["label"], \
-                    f"tab {tid}: needs a non-empty label"
-                assert isinstance(t.get("sections"), list), \
-                    f"tab {tid}: sections must be a list"
-                for title in t["sections"]:
-                    assert isinstance(title, str), f"tab {tid}: section titles must be strings"
-                    assert title not in claimed, \
-                        f"tab {tid}: {title!r} already claimed by tab {claimed[title]!r}"
-                    claimed[title] = tid
-                    if title not in titles:
-                        print(f"  ! {path}: tab {tid!r} claims absent section {title!r}")
-            for title in sorted(titles - set(claimed)):
-                print(f"  · {path}: section {title!r} is in no tab (renders pinned)")
-        print(f"✓ {path}")
-    except (AssertionError, json.JSONDecodeError, OSError) as e:
-        print(f"✗ {path}: {e}")
-        fail = 1
-sys.exit(fail)
+            if not isinstance(s, dict):
+                errors.append(f"section {i}: must be an object")
+                continue
+            validate_section(s, i, errors, warnings)
+    if isinstance(b.get("tabs"), list):
+        validate_tabs(b, errors, warnings, notes)
+    return errors, warnings, notes
+
+
+def main(argv):
+    fail = 0
+    for path in argv:
+        try:
+            b = json.load(open(path))
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"✗ {path}: {e}")
+            fail = 1
+            continue
+        errors, warnings, notes = validate_board(b)
+        for w in warnings:
+            print(f"  ! {path}: {w}")
+        for n in notes:
+            print(f"  · {path}: {n}")
+        if errors:
+            for e in errors:
+                print(f"✗ {path}: {e}")
+            fail = 1
+        else:
+            print(f"✓ {path}")
+    return fail
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

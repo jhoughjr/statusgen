@@ -1,0 +1,167 @@
+{
+  "__doc": [
+    "The machine-readable half of BOARD_SCHEMA.md: one entry per widget kind, one entry per field.",
+    "bin/validate-board.py walks this spec on every board in the deploy sweep.",
+    "`type` is one of: str, num, bool, list, obj, scalar (str or num).",
+    "`required: true` means the field must be present. A missing optional field is never a finding.",
+    "`need` sets the severity of a finding (a missing required field, or a mistyped one): `hard` fails the deploy gate, `soft` prints a warning.",
+    "A new check starts `soft` and is promoted to `hard` only after it runs green against every live board. The gate must never freeze the site over a rule the boards never had.",
+    "A `list` field may carry `item`, the spec for each element of the list.",
+    "Fields in `sectionCommon` are legal on every kind. A section field in neither its kind's spec nor `sectionCommon` draws an unknown-field warning, which is the typo catcher.",
+    "tests/test_widget_schema.py holds this file, the validator, the renderer, and BOARD_SCHEMA.md to the same field surface."
+  ],
+  "board": {
+    "fields": {
+      "title": { "type": "str", "required": true, "need": "hard" },
+      "sections": { "type": "list", "required": true, "need": "hard" },
+      "eyebrow": { "type": "str" },
+      "stamp": { "type": "str" },
+      "links": { "type": "list",
+                 "item": { "fields": { "label": { "type": "str" }, "href": { "type": "str" } } } },
+      "staleAfterDays": { "type": "num", "need": "hard" },
+      "staleAfterMinutes": { "type": "num" },
+      "tabs": { "type": "list", "need": "hard" }
+    }
+  },
+  "sectionCommon": {
+    "fields": {
+      "kind": { "type": "str", "required": true, "need": "hard" },
+      "title": { "type": "str" },
+      "icon": { "type": "str" },
+      "logo": { "type": "str" },
+      "href": { "type": "str" },
+      "count": { "type": "str" },
+      "pill": { "type": "obj" },
+      "desc": { "type": "str" },
+      "asOf": { "type": "str" },
+      "collapsible": { "type": "bool" },
+      "collapsed": { "type": "bool" }
+    }
+  },
+  "kinds": {
+    "stats": {
+      "fields": {
+        "items": { "type": "list", "required": true, "need": "soft",
+          "item": { "fields": {
+            "label": { "type": "str", "required": true, "need": "hard" },
+            "n": { "type": "scalar" },
+            "ts": { "type": "str" },
+            "since": { "type": "str" },
+            "tone": { "type": "str" },
+            "stale": { "type": "bool" },
+            "href": { "type": "str" }
+          } } }
+      }
+    },
+    "compare": {
+      "fields": {
+        "columns": { "type": "list", "required": true, "need": "hard",
+          "item": { "fields": {
+            "title": { "type": "str" },
+            "logo": { "type": "str" },
+            "icon": { "type": "str" },
+            "items": { "type": "list",
+              "item": { "fields": {
+                "label": { "type": "str", "required": true, "need": "hard" },
+                "n": { "type": "scalar", "required": true, "need": "hard" },
+                "ts": { "type": "str" },
+                "since": { "type": "str" },
+                "tone": { "type": "str" },
+                "stale": { "type": "bool" },
+                "href": { "type": "str" }
+              } } }
+          } } }
+      }
+    },
+    "banner": {
+      "fields": {
+        "text": { "type": "str", "required": true, "need": "soft" },
+        "tone": { "type": "str" },
+        "links": { "type": "obj" }
+      }
+    },
+    "barchart": {
+      "fields": {
+        "series": { "type": "list", "required": true, "need": "soft",
+          "item": { "fields": {
+            "label": { "type": "str", "required": true, "need": "soft" },
+            "value": { "type": "num", "required": true, "need": "soft" },
+            "valueText": { "type": "str" },
+            "fill": { "type": "str" }
+          } } },
+        "legend": { "type": "list",
+          "item": { "fields": {
+            "label": { "type": "str" },
+            "fill": { "type": "str" }
+          } } },
+        "note": { "type": "str" }
+      }
+    },
+    "pie": {
+      "fields": {
+        "slices": { "type": "list", "required": true, "need": "soft",
+          "item": { "fields": {
+            "label": { "type": "str", "required": true, "need": "soft" },
+            "value": { "type": "num", "required": true, "need": "soft" },
+            "tone": { "type": "str" }
+          } } },
+        "note": { "type": "str" }
+      }
+    },
+    "table": {
+      "fields": {
+        "columns": { "type": "list", "required": true, "need": "soft" },
+        "rows": { "type": "list", "required": true, "need": "soft" }
+      }
+    },
+    "cards": {
+      "fields": {
+        "items": { "type": "list", "required": true, "need": "soft",
+          "item": { "fields": {
+            "q": { "type": "str", "required": true, "need": "hard" },
+            "id": { "type": "str" },
+            "note": { "type": "str" },
+            "meta": { "type": "str" },
+            "href": { "type": "str" },
+            "pill": { "type": "obj", "need": "hard" }
+          } } }
+      }
+    },
+    "split": {
+      "fields": {
+        "columns": { "type": "list", "required": true, "need": "hard",
+          "item": { "fields": {
+            "h3": { "type": "str" },
+            "style": { "type": "str" },
+            "items": { "type": "list",
+              "item": { "fields": {
+                "text": { "type": "str", "required": true, "need": "soft" },
+                "who": { "type": "str" }
+              } } }
+          } } }
+      }
+    },
+    "console": {
+      "fields": {
+        "lines": { "type": "list", "required": true, "need": "hard",
+          "item": { "fields": {
+            "text": { "type": "str", "required": true, "need": "hard" },
+            "status": { "type": "str" },
+            "tone": { "type": "str" },
+            "ts": { "type": "str" },
+            "meta": { "type": "str" },
+            "note": { "type": "str" },
+            "href": { "type": "str" },
+            "cmd": { "type": "str" },
+            "logo": { "type": "str" },
+            "pill": { "type": "obj" }
+          } } }
+      }
+    },
+    "live-console": {
+      "fields": {
+        "poll": { "type": "obj", "required": true, "need": "hard" }
+      }
+    }
+  }
+}

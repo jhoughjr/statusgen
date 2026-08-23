@@ -12,6 +12,7 @@ can see (hatchery serve --bind 0.0.0.0, or the control plane's LAN address).
 Config (~/.roostrc):
   ROOST_HATCHERY_BOARD=clauffice                    # board dir under the site
   ROOST_HATCHERY_URL=http://mini-reachable-host:7878
+  ROOST_HATCHERY_TOKEN=...   # serve requires one when bound off-host
 
 Non-fatal by contract: no config → skip; any failure → board untouched, exit 0.
 """
@@ -76,8 +77,13 @@ def main():
     if not board_path.exists():
         print("hatchery-stacks: {} not found — skipping".format(board_path))
         return 0
+    request = urllib.request.Request(url.rstrip("/") + "/api/status")
+    token = cfg.get("ROOST_HATCHERY_TOKEN", "")
+    if token:
+        # serve requires the token whenever it binds off-host, which a polled serve does.
+        request.add_header("X-Hatchery-Token", token)
     try:
-        with urllib.request.urlopen(url.rstrip("/") + "/api/status", timeout=15) as answer:
+        with urllib.request.urlopen(request, timeout=15) as answer:
             payload = json.load(answer)
     except Exception as error:  # never break a status push
         print("hatchery-stacks: {} did not answer ({}) — leaving board as-is".format(url, error))

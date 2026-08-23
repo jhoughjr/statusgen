@@ -23,6 +23,14 @@
       "tabs": { "type": "list", "need": "hard" }
     }
   },
+  "config": {
+    "__doc": "The shape of a per-board config.json - the settings file no collector regenerates. Sections are addressed by title, same as tabs. Every finding here is soft: the renderer ignores a broken config, so the gate must not freeze the site over one.",
+    "fields": {
+      "staleAfterMinutes": { "type": "num" },
+      "hide": { "type": "list" },
+      "order": { "type": "list" }
+    }
+  },
   "sectionCommon": {
     "fields": {
       "kind": { "type": "str", "required": true, "need": "hard" },

@@ -76,6 +76,8 @@ for i, block in enumerate(doc_blocks):
         errs = errors_of(parsed)
     elif "kind" in parsed:
         errs = errors_of(board_with(parsed))
+    elif set(parsed) & {"hide", "order", "staleAfterMinutes"}:
+        errs = vbs.validate_config(parsed, None)
     else:
         continue
     assert not errs, f"BOARD_SCHEMA.md block {i}: {errs}"

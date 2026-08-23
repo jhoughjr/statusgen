@@ -59,6 +59,26 @@ A hand-written section may carry `"asOf": "2026-07-21"` — the date a human las
 
 **Only put `asOf` on sections a human writes.** A collector-owned section is refreshed on every push and cannot drift, so a stamp there would be a claim about hand-authorship that stops being true the moment it ages. `collect/loc.py` deletes any `asOf` it finds on a chart it has taken over, for exactly this reason.
 
+## Per-board `config.json` (optional)
+
+Everything in `board.json` is derived data: collectors rewrite it wholesale every cycle, and the site repo's rule is that the remote always wins. A hand edit there does not survive — the clauffice `staleAfterMinutes` was set by hand on 2026-08-20 and steamrolled by the next scheduled run. Settings that must outlive regeneration live in a sibling `config.json`, which no collector touches:
+
+```json
+{
+  "staleAfterMinutes": 60,
+  "hide": ["A section title"],
+  "order": ["First", "Second"]
+}
+```
+
+The renderer fetches it on the board's own 60s refresh cycle and applies it over the data, so an edit lands within a minute. A missing, empty, or unparseable config costs nothing — the board renders exactly as `board.json` says.
+
+- `staleAfterMinutes` arms the frozen-board banner (see above) and wins over any value in `board.json`.
+- `hide` drops sections by **title** — the same addressing tabs use, for the same reason: collectors replace sections wholesale by title, so any key stored on the section would be wiped within the hour. An untitled section (the hero row, the banner) cannot be hidden, so the failure mode stays "it shows up".
+- `order` rearranges only the sections it names, within the slots those sections already occupy. An unlisted section — including one a new collector seeds tomorrow — keeps its place instead of being shoved to one end.
+
+`bin/validate-board.py` visits each board's sibling `config.json` in the same sweep and warns (never fails) on a typo'd key, a wrong type, or a title no section carries. The renderer ignores all of those silently, which is the safe failure and also the one this sweep exists to name.
+
 ## Section kinds
 
 Each section is `{ "kind": "...", ... }`. Supported kinds:

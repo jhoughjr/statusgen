@@ -201,14 +201,64 @@ def validate_board(b):
     return errors, warnings, notes
 
 
+def validate_config(cfg, board=None):
+    """A per-board config.json against its spec, and against the board it steers when one is at hand.
+    Every finding is a warning: the renderer ignores a broken config outright, so the gate never fails the site over one."""
+    warnings = []
+    if not isinstance(cfg, dict):
+        return ["config must be an object (the renderer ignores it)"]
+    fields = SPEC["config"]["fields"]
+    _check_fields(cfg, fields, "config", warnings, warnings)
+    _check_unknown(cfg, set(fields), "config", warnings)
+    titles = {s.get("title") for s in (board or {}).get("sections", [])
+              if isinstance(s, dict) and s.get("title")} if isinstance(board, dict) else None
+    for key in ("hide", "order"):
+        values = cfg.get(key)
+        if not isinstance(values, list):
+            continue
+        for j, title in enumerate(values):
+            if not isinstance(title, str):
+                warnings.append(f"config: {key}[{j}] must be a section title (a string)")
+            elif titles is not None and title not in titles:
+                warnings.append(f"config: {key} names absent section {title!r} (fine if its collector has not seeded yet)")
+    return warnings
+
+
 def main(argv):
-    fail = 0
+    # A board's sibling config.json rides the sweep without being named in it,
+    # so the roost glob needs no change to cover the new file.
+    paths = []
     for path in argv:
+        paths.append(path)
+        p = pathlib.Path(path)
+        if p.name == "board.json":
+            sibling = p.with_name("config.json")
+            if sibling.exists() and str(sibling) not in argv:
+                paths.append(str(sibling))
+    fail = 0
+    for path in paths:
+        is_config = pathlib.Path(path).name == "config.json"
         try:
             b = json.load(open(path))
         except (json.JSONDecodeError, OSError) as e:
+            # A config that does not parse is ignored by the renderer, so it warns instead of failing the gate.
+            if is_config:
+                print(f"  ! {path}: invalid JSON, the renderer ignores it ({e})")
+                continue
             print(f"✗ {path}: {e}")
             fail = 1
+            continue
+        if is_config:
+            board = None
+            board_path = pathlib.Path(path).with_name("board.json")
+            if board_path.exists():
+                try:
+                    board = json.load(open(board_path))
+                except (json.JSONDecodeError, OSError):
+                    board = None
+            for w in validate_config(b, board):
+                print(f"  ! {path}: {w}")
+            print(f"✓ {path}")
             continue
         errors, warnings, notes = validate_board(b)
         for w in warnings:

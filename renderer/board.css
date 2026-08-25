@@ -93,8 +93,17 @@ h2 .sec-link:hover { color: var(--accent); text-decoration: underline; }
 .stat.linked:hover .l::after { opacity: 1; }
 .stat .n { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
 .stat .l { font-size: 0.76rem; color: var(--ink-soft); margin-top: 0.35rem; }
-.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1.6rem; margin: 1.6rem 0 0; }
+/* The provenance line: what the headline was read from. Monospace because it
+   carries SHAs, and faint because it is evidence, not the answer. It truncates
+   rather than wraps, so one long value cannot make its tile taller than the
+   rest of the row. */
+.stat .m { font-family: ui-monospace, Menlo, monospace; font-size: 0.68rem; color: var(--ink-faint); margin-top: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1.9rem; margin: 1.6rem 0 0; }
 .compare-col { min-width: 0; }
+/* A hairline between the sides. The two columns are read across, row by row,
+   and without a rule the eye has only the gap to tell it where one side stops.
+   Dropped at the mobile breakpoint below, where the columns stack. */
+.compare-col + .compare-col { border-left: 1px solid var(--hair); padding-left: 1.9rem; }
 .compare-head { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; font-weight: 650; color: var(--ink-soft); margin: 0; }
 .compare .stats { margin: 0.6rem 0 0; }
 /* A stack's brand mark in a compare heading. Sized in em so it tracks the
@@ -105,7 +114,7 @@ h2 .sec-link:hover { color: var(--accent); text-decoration: underline; }
 .console-line .stack-logo { width: 1.05em; height: 1.05em; }
 .tab .stack-logo { width: 1em; height: 1em; }
 h2 .stack-logo { width: 1.05em; height: 1.05em; align-self: center; }
-@media (max-width: 640px) { .compare { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .compare { grid-template-columns: 1fr; } .compare-col + .compare-col { border-left: 0; padding-left: 0; } }
 .console { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 0.85rem 1rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; line-height: 1.75; overflow-x: auto; }
 .console-line { display: flex; align-items: center; gap: 0.7rem; white-space: nowrap; }
 .console-dot { width: 0.55rem; height: 0.55rem; border-radius: 999px; flex: 0 0 auto; background: #6e7681; }

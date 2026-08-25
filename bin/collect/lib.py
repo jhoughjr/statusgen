@@ -62,6 +62,10 @@ def load_board(path):
 
 
 def save_board(path, board):
+    # Every collector's last act before the file lands, so a compare column
+    # reaches the renderer in its declared order whichever collector wrote to
+    # it last. See apply_column_order for why the board declares it.
+    apply_column_order(board)
     json.dump(board, open(path, "w"), indent=2)
     open(path, "a").write("\n")
 
@@ -158,6 +162,47 @@ def remove_compare_tile(board, column, label):
     return removed
 
 
+def apply_column_order(board):
+    """Sort every compare column's tiles into the order its section declares.
+
+    A compare section is read ACROSS: "how does the client's coverage compare
+    to the server's" is answered by two tiles sitting at the same height in two
+    columns. Nothing held them at the same height. Each tile is written by a
+    different collector, each appends when its tile is new, so a column's order
+    was a fossil of the order the collectors first happened to run in — and the
+    two columns fossilised differently. The reader was left hunting for the
+    other half of each pair, which is the one thing the layout exists to spare
+    them.
+
+    The SECTION declares the order, not a collector: only the board knows what
+    it is comparing, and a collector only ever sees its own tile. `order` is a
+    list of label prefixes, matched the way every other tile lookup here
+    matches. A label no prefix claims keeps its relative position at the end, so
+    a new tile appears on the board without an edit here, and a board that
+    declares no `order` is left exactly as it is.
+    """
+    for section in board.get("sections", []):
+        if section.get("kind") != "compare":
+            continue
+        order = section.get("order")
+        if not isinstance(order, list) or not order:
+            continue
+
+        def rank(tile, order=order):
+            label = str(tile.get("label", ""))
+            for i, prefix in enumerate(order):
+                if label.startswith(str(prefix)):
+                    return i
+            return len(order)
+
+        for col in section.get("columns", []):
+            # Stable, so two tiles under one prefix ("CI build · dev" and
+            # "CI build · master") keep the order their collector wrote them
+            # in, which is the trunk preference order.
+            col["items"] = sorted(col.get("items", []), key=rank)
+    return board
+
+
 def set_compare_tile(board, match, n, label=None, tone=None, column=None):
     """Set the value (and optionally label/tone) of the compare tile whose
     current label starts with `match`. Returns True when a tile was found and
@@ -182,7 +227,7 @@ def set_compare_tile(board, match, n, label=None, tone=None, column=None):
 
 
 def upsert_compare_tile(board, column, label, n, tone=None, href=None,
-                        match=None, since=None):
+                        match=None, since=None, meta=None):
     """Create-or-update a tile in the compare column whose title contains
     `column`. Matches an existing tile by `match` (default: `label`) as a
     prefix, so a collector can rename its own tile without orphaning the old
@@ -210,7 +255,13 @@ def upsert_compare_tile(board, column, label, n, tone=None, href=None,
         # Never pass a pre-rendered "24m ago" as `n`: it is true only at the
         # instant it is written, and a board left open then insists on it for
         # hours while the run history below it says otherwise.
-        for key, val in (("tone", tone), ("href", href), ("since", since)):
+        # `meta` is the tile's provenance line: the evidence the headline was
+        # read from — the SHA a verdict was measured at, say. It belongs on the
+        # tile that states the headline, not on a tile of its own beside it,
+        # because two tiles can drift apart and a reader has no way to tell
+        # which one to believe.
+        for key, val in (("tone", tone), ("href", href), ("since", since),
+                         ("meta", meta)):
             if val is None:
                 tile.pop(key, None)
             else:

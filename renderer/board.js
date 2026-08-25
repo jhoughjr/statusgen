@@ -283,13 +283,23 @@
     // `since` is a timestamp the tile wants shown as an age. Deliberately not
     // part of `n`: the collector must never hand us a pre-rendered "24m ago",
     // because that string is only true at the instant it is written.
-    if (item.since) {
-      const age = fmtAge(item.since);
-      if (age) n.append(el("span", { class: "tile-age" }, ` · ${age}`));
-    }
+    const age = item.since ? fmtAge(item.since) : "";
+    // `meta` is the tile's provenance line: the evidence the headline was read
+    // from, carried inside the tile instead of in a second tile beside it.
+    //
+    // The age dates whatever the line names, so it joins `meta` when there is
+    // one and stays on the headline when there is not. A build tile then reads
+    // ✓ / "CI build · dev" / "132dab0 · 4d" — the verdict, what it is a verdict
+    // on, and the commit it was measured from. That used to be two tiles, and
+    // two tiles could disagree: a ✓ from one branch beside a SHA from another.
+    if (age && !item.meta) n.append(el("span", { class: "tile-age" }, ` · ${age}`));
     if (item.stale) n.append(el("span", { class: "stale-flag", "aria-label": "stale" }, " ⚠"));
     stat.append(n);
     stat.append(el("div", { class: "l" }, item.label ?? ""));
+    if (item.meta) {
+      stat.append(el("div", { class: "m" },
+                     age ? `${item.meta} · ${age}` : String(item.meta)));
+    }
     return stat;
   }
 

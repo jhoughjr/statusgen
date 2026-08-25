@@ -69,9 +69,10 @@ def _trunk_pool(runs, trunks):
     """(branch, its settled runs, newest first) for the most-preferred trunk
     that has any — or (None, []) when none of them ran in the window.
 
-    Both tiles are answered from ONE branch's runs rather than picked
-    independently, so a column cannot end up reading "CI build ✗" from dev next
-    to a "Last green" from main. The pair is meant to be read together.
+    The verdict and its evidence are answered from ONE branch's runs rather
+    than picked independently, so a tile cannot end up reading ✗ from dev over
+    a SHA from main. They are one statement about one trunk; keeping them in
+    one pool is what makes that true rather than merely likely.
 
     `settled` applies the same filter the console feed uses: queued/in-progress
     runs have not said anything yet, and a concurrency-cancelled run is not
@@ -340,7 +341,7 @@ def main():
     }
     board = lib.load_board(board_path)
     lib.upsert_section(board, "CI — recent runs", section, after_kind="compare")
-    # Wire each repo's pair of tiles to that repo's TRUNK state.
+    # Wire each repo's build tiles to that repo's TRUNK state.
     #
     # Scoped per column on purpose. This used to set the first "CI build" tile
     # in any column from the newest run across all repos, which on a two-repo

@@ -663,6 +663,37 @@
 
   // ---- header + top-level render -----------------------------------------
 
+  // A board is a static file, so a broken publish leaves the last good copy in
+  // place and the page looks exactly like a board reporting that nothing
+  // happened. On 2026-08-19 a stuck deploy lock held the site eleven hours
+  // behind, and it showed a build from midnight as the newest thing that had
+  // run. That is not lateness, it is the page asserting something false.
+  //
+  // The age is knowable right here, from the Last-Modified of board.json, so
+  // the page says it. The scheduled refresh runs every fifteen minutes, which
+  // makes an hour already far outside normal.
+  const STALE_AFTER_MS = 60 * 60 * 1000;
+
+  function ageWords(ms) {
+    const mins = Math.round(ms / 60000);
+    if (mins < 120) return mins + (mins === 1 ? " minute" : " minutes");
+    const hours = Math.round(mins / 60);
+    if (hours < 48) return hours + " hours";
+    return Math.round(hours / 24) + " days";
+  }
+
+  function renderStale(generatedAt) {
+    if (!generatedAt) return null;
+    const t = Date.parse(generatedAt);
+    if (Number.isNaN(t)) return null;
+    const age = Date.now() - t;
+    if (age < STALE_AFTER_MS) return null;
+    return el("div", { class: "stale mono" }, [
+      el("strong", null, "This board is " + ageWords(age) + " old."),
+      " Publishing has stopped, so everything below is what was true then, not now.",
+    ]);
+  }
+
   function renderHeader(data, generatedAt) {
     const header = el("header", { class: "top" });
     if (data.eyebrow) header.append(el("p", { class: "eyebrow" }, data.eyebrow));
@@ -670,6 +701,8 @@
     if (data.stamp) header.append(el("div", { class: "stamp mono" }, data.stamp));
     const gen = fmtGenerated(generatedAt);
     if (gen) header.append(el("div", { class: "stamp mono generated" }, `Generated ${gen}`));
+    const stale = renderStale(generatedAt);
+    if (stale) header.append(stale);
     // Header nav links (e.g. a history page's "← back", or a board's "History →"
     // added by maybeAddHistoryLink). Always present so links can be appended.
     const nav = el("nav", { class: "board-links mono" });

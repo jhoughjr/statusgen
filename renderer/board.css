@@ -245,3 +245,18 @@ footer .paths { display: grid; gap: 0.6rem; }
 /* linked card titles (item.href) */
 .q .qlink { color: inherit; text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
 .q .qlink:hover { color: var(--accent); }
+
+/* A stale board is worse than a late one: it reads as "nothing happened".
+   This is deliberately loud, because it contradicts everything under it. */
+.stale {
+  margin: 12px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--err);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: var(--err-bg);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.stale strong { color: var(--err); }

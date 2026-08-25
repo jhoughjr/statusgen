@@ -98,6 +98,9 @@ h2 .sec-link:hover { color: var(--accent); text-decoration: underline; }
    rather than wraps, so one long value cannot make its tile taller than the
    rest of the row. */
 .stat .m { font-family: ui-monospace, Menlo, monospace; font-size: 0.68rem; color: var(--ink-faint); margin-top: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The age sits on its own line under the provenance. Tighter than a fresh
+   block, because it continues the line above rather than starting a new one. */
+.stat .m.age { margin-top: 0.08rem; }
 .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1.9rem; margin: 1.6rem 0 0; }
 .compare-col { min-width: 0; }
 /* A hairline between the sides. The two columns are read across, row by row,

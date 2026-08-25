@@ -55,6 +55,7 @@
             "n": { "type": "scalar" },
             "ts": { "type": "str" },
             "since": { "type": "str" },
+            "meta": { "type": "str" },
             "tone": { "type": "str" },
             "stale": { "type": "bool" },
             "href": { "type": "str" }
@@ -63,6 +64,7 @@
     },
     "compare": {
       "fields": {
+        "order": { "type": "list" },
         "columns": { "type": "list", "required": true, "need": "hard",
           "item": { "fields": {
             "title": { "type": "str" },
@@ -74,6 +76,7 @@
                 "n": { "type": "scalar", "required": true, "need": "hard" },
                 "ts": { "type": "str" },
                 "since": { "type": "str" },
+                "meta": { "type": "str" },
                 "tone": { "type": "str" },
                 "stale": { "type": "bool" },
                 "href": { "type": "str" }

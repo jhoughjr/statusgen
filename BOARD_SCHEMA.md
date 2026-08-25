@@ -91,6 +91,17 @@ Each section is `{ "kind": "...", ... }`. Supported kinds:
 ```
 `tone` ∈ `go | you | srv | wip | done | err` (green / amber / blue / indigo / grey / red). `n` is a string (may be "#8", "CI", etc.). `err` is for genuine failure states (e.g. e2e tests failing) — an `err` stat tile also gets a red border + tinted background so red never hides in a tile row.
 
+**A tile has three lines, and they answer three different questions.** `n` is the headline: the answer the reader came for. `label` says what the headline is an answer *about*. `meta` (optional) is the provenance line: the evidence the headline was read from, set small, faint and monospaced because it is the footnote, not the claim.
+
+```json
+{ "n": "✓", "label": "CI build · dev", "meta": "132dab0",
+  "since": "2026-08-20T19:05:29Z", "tone": "go", "href": "…/runs/32406777042" }
+```
+
+Renders as **✓** / `CI build · dev` / `132dab0 · 4d ago`. Reach for `meta` when a number is only trustworthy if you know where it came from — a verdict and the commit it was measured at, a rate and its sample size. The alternative is a second tile beside the first, and two tiles can drift apart with no way for a reader to tell which one to believe.
+
+**`since` is a timestamp, never a rendered age.** The renderer computes "4d ago" when the page draws, so the age decays honestly while a board sits open on a wall. A collector that writes "4d ago" into `n` publishes a string that is true for as long as it takes to push the file and wrong forever after. The age attaches to whatever the tile names last: it joins `meta` when there is one, because the age dates the *commit*, not the tick beside it.
+
 ### `compare` — the same tiles, side by side per subject
 ```json
 { "kind": "compare", "title": "Phoenix ⟷ MWServer", "columns": [
@@ -99,7 +110,26 @@ Each section is `{ "kind": "...", ... }`. Supported kinds:
   { "title": "MWServer — server", "logo": "swift",
     "items": [ { "n": "1196", "label": "Tests green", "tone": "go" } ] } ] }
 ```
-Each column is a `stats` row under its own heading. Items take the same `n`/`label`/`tone`/`href` as `stats`.
+Each column is a `stats` row under its own heading. Items take the same `n`/`label`/`meta`/`since`/`tone`/`href` as `stats`.
+
+**A compare section is read across, not down.** "Is the client's coverage better than the server's" is answered by two tiles at the same height in two columns. Nothing holds them at that height on its own: every tile is written by a different collector, each appends when its tile is new, so a column's order is otherwise a fossil of the order its collectors first happened to run in — and two columns fossilise differently.
+
+**`order`** fixes that. It is a list of label prefixes on the section, applied to every column at save time (`lib.apply_column_order`, called from `lib.save_board`, so it holds whichever collector wrote last):
+
+```json
+{ "kind": "compare", "title": "Phoenix ⟷ MWServer",
+  "order": ["CI build", "Build green", "Build time", "Tests green",
+            "Coverage", "Test files", "Added"],
+  "columns": [
+    { "title": "Phoenix — client", "logo": "ts",
+      "items": [ { "n": "7525", "label": "Tests green", "tone": "go" } ] },
+    { "title": "MWServer — server", "logo": "swift",
+      "items": [ { "n": "618", "label": "Tests green", "tone": "go" } ] } ] }
+```
+
+Prefixes, so `"CI build"` claims `CI build · dev` and `CI build · master` and holds them in the order their collector wrote them (trunk preference: the working trunk above the stable one). A label no prefix claims keeps its relative position at the *end*, so a new collector adds a tile without editing this list. A section that declares no `order` is left exactly as it is.
+
+Put the metrics both sides can answer at the top in the same order, and let each side's one-sided tiles fall to the bottom. A tile only one column can ever carry ("Blocked on server") is a fact about the *seam* between the two subjects rather than about either one, and it reads that way when it sits below the rows that pair up.
 
 A column may carry `"logo"` — a brand mark for the stack it stands for, drawn inline (`swift | ts | js`). It replaces `"icon"` (an emoji) when both are set, and an unrecognised name falls back to the icon rather than leaving a gap. Marks are drawn, never fetched: a board served behind a gate that blocks outbound requests would render a remote image as a broken box.
 

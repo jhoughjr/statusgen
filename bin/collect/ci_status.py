@@ -69,9 +69,10 @@ def _trunk_pool(runs, trunks):
     """(branch, its settled runs, newest first) for the most-preferred trunk
     that has any — or (None, []) when none of them ran in the window.
 
-    Both tiles are answered from ONE branch's runs rather than picked
-    independently, so a column cannot end up reading "CI build ✗" from dev next
-    to a "Last green" from main. The pair is meant to be read together.
+    The verdict and its evidence are answered from ONE branch's runs rather
+    than picked independently, so a tile cannot end up reading ✗ from dev over
+    a SHA from main. They are one statement about one trunk; keeping them in
+    one pool is what makes that true rather than merely likely.
 
     `settled` applies the same filter the console feed uses: queued/in-progress
     runs have not said anything yet, and a concurrency-cancelled run is not
@@ -115,67 +116,84 @@ def _tile_names(base, branch, primary):
     return label, (base if primary else label)
 
 
-def _ci_build_tile(board, label, branch, pool, primary):
-    """✓/✗ for the newest settled run on one trunk.
+def _build_tile(board, label, branch, pool, primary):
+    """One trunk's build state as a single tile: the verdict, what it is a
+    verdict on, and the commit it was measured at.
 
-    When no trunk ran inside the window the caller leaves the tiles exactly as
-    they were rather than setting them from whatever else happened to run — the
-    collector's standing contract is that missing data leaves the board alone,
-    and a badge driven by a feature branch is the bug this contract prevents.
-    """
-    latest = pool[0]
-    ok = latest.get("conclusion") == "success"
-    name, match = _tile_names("CI build", branch, primary)
-    lib.upsert_compare_tile(board, label, name, "✓" if ok else "✗",
-                            tone="go" if ok else "you", href=latest.get("url"),
-                            match=match)
+    This was two tiles until 2026-08-25 — a "CI build" ✓/✗ beside a "Last green"
+    SHA — and two tiles can disagree. They were already answered from one
+    branch's runs precisely so they could not, which is the tell that they were
+    always one fact: a trunk's build state is a verdict plus its evidence, and
+    splitting it filed half the answer under each of two headings.
 
+    The verdict is the headline because "is the trunk green" is the question a
+    reader brings to the board. The SHA and its age go to the tile's `meta`
+    line, where they read as the evidence behind the headline instead of
+    competing with it for the reader's eye.
 
-def _last_green_tile(board, repo, label, branch, pool, primary):
-    """A "Last green" tile: the commit this repo was last successful at, and how
-    long ago — shown whether the current build is green or red.
+    A red trunk is the case the evidence exists for. ✓/✗ alone says nothing
+    about what still worked, so a red build reads as "everything is unknown"
+    rather than "here is the last thing that was not". The meta line names the
+    last green explicitly there, because a bare SHA under a ✗ reads as the SHA
+    that failed.
 
-    The "CI build" tile above only says ✓/✗ right now. That is the one moment it
-    is least useful: when a build goes red, the board stops saying anything about
-    what still worked, so a red run reads as "everything is unknown" rather than
-    "here is the last thing that wasn't". Worse, a repo whose tiles only refresh
-    on green keeps showing the previous green's numbers with nothing admitting
-    they are stale.
+    The link follows the headline: the newest settled run, which under a ✗ is
+    the failing one the reader wants open. The green run stays one click away in
+    the runs feed below, and its SHA is on the tile.
 
     Derived from Actions history rather than any runner-local state, so it is
     correct for every repo on the board, survives a runner rebuild, and does not
     depend on a particular CI script having written a file somewhere.
     """
-    name, match = _tile_names("Last green", branch, primary)
+    latest = pool[0]
+    ok = latest.get("conclusion") == "success"
+    name, match = _tile_names("CI build", branch, primary)
     green = next((r for r in pool if r.get("conclusion") == "success"), None)
     if green is None:
-        # Say so rather than leaving a stale tile claiming an old green.
-        lib.upsert_compare_tile(board, label, name, "none recent",
-                                tone="you", href=None, match=match)
-        return
-    sha = str(green.get("headSha", ""))[:7] or "?"
-    # The SHA is a fact; the age is not — it is only true at the instant it is
-    # written. Baking "24m ago" into board.json meant a board sitting open kept
-    # asserting a build had gone green 24 minutes ago, hours later, with no such
-    # run in the history right below it. Hand the renderer the timestamp and let
-    # it compute the age at render time, where it can decay honestly.
-    lib.upsert_compare_tile(board, label, name, sha,
-                            tone="go", href=green.get("url"),
-                            since=green.get("createdAt"), match=match)
+        # Say it rather than leaving the line off. An absent meta reads as "not
+        # measured yet"; this is a measurement, and its answer is bad news.
+        meta, since = "no green in the window", None
+    else:
+        sha = str(green.get("headSha", ""))[:7] or "?"
+        meta = sha if ok else f"last green {sha}"
+        # The SHA is a fact; the age is not — it is only true at the instant it
+        # is written. Baking "24m ago" into board.json meant a board sitting
+        # open kept asserting a build had gone green 24 minutes ago, hours
+        # later, with no such run in the history right below it. Hand the
+        # renderer the timestamp and let it compute the age at render time,
+        # where it can decay honestly.
+        since = green.get("createdAt")
+    lib.upsert_compare_tile(board, label, name, "✓" if ok else "✗",
+                            tone="go" if ok else "you", href=latest.get("url"),
+                            match=match, meta=meta, since=since)
 
 
-def apply_tiles(board, repo, label, runs, trunks):
-    """One repo's tile pass: every trunk with settled runs gets its pair, the
-    preferred one under the plain-renamed names, the rest branch-suffixed.
-    No trunk in the window leaves the tiles exactly as they were."""
+def apply_tiles(board, label, runs, trunks):
+    """One repo's tile pass: every trunk with settled runs gets its build tile,
+    the preferred one under the plain-renamed name, the rest branch-suffixed.
+
+    No trunk in the window leaves the tiles exactly as they were rather than
+    setting them from whatever else happened to run — the collector's standing
+    contract is that missing data leaves the board alone, and a badge driven by
+    a feature branch is the bug that contract prevents.
+    """
     pools = settled_pools(runs, trunks)
     if not pools:
         print(f"ci-status: {label}: nothing settled on {'/'.join(trunks)} in "
               "the window — leaving the tiles as-is")
         return
+    # Retire the "Last green" tiles this collector used to write beside the
+    # verdict. An upsert never removes, so without this the old tile would keep
+    # the SHA it last held while the merged tile moved on, and no later run
+    # would correct it. A tile no collector writes any more is worse than a
+    # missing one: it states a stale number beside the live ones, in the same
+    # type, with the same confidence.
+    folded = lib.remove_compare_tile(board, label, "Last green")
+    if folded:
+        print(f"ci-status: {label}: folded {folded} 'Last green' tile(s) "
+              "into the build tile")
     for i, (branch, pool) in enumerate(pools):
-        _ci_build_tile(board, label, branch, pool, primary=(i == 0))
-        _last_green_tile(board, repo, label, branch, pool, primary=(i == 0))
+        _build_tile(board, label, branch, pool, primary=(i == 0))
 
 
 def _ledger_line(entry, repo_entries):
@@ -323,7 +341,7 @@ def main():
     }
     board = lib.load_board(board_path)
     lib.upsert_section(board, "CI — recent runs", section, after_kind="compare")
-    # Wire each repo's pair of tiles to that repo's TRUNK state.
+    # Wire each repo's build tiles to that repo's TRUNK state.
     #
     # Scoped per column on purpose. This used to set the first "CI build" tile
     # in any column from the newest run across all repos, which on a two-repo
@@ -347,7 +365,7 @@ def main():
         # trunk build could not mark itself green.
         runs = lib.apply_self_run(repo, runs, self_run)
         ledger_sources.append((repo, label, logo, runs))
-        apply_tiles(board, repo, label, runs, trunks)
+        apply_tiles(board, label, runs, trunks)
     lib.save_board(board_path, board)
     if ledger_sources:
         added, total = update_ledger(lib.site_dir(cfg), board_dir, ledger_sources)

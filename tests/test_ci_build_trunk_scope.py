@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit tests for trunk scoping of the "CI build" / "Last green" tiles.
+"""Unit tests for trunk scoping of the "CI build" tile.
 
 The bug these pin, observed on the clauffice board 2026-08-05: the badge read
 ✗ while every trunk was green. The tile was set from the repo's newest run on
@@ -8,11 +8,18 @@ ANY branch, and the newest run happened to be a failing pull request
 project is not red because someone's PR is red — that is a PR's business, not
 the board's headline.
 
-Since 2026-08-20 every trunk with settled runs gets its OWN tile pair, branch
-in the label, so one trunk can never mask another: after a trunk switch moved
+Since 2026-08-20 every trunk with settled runs gets its OWN tile, branch in the
+label, so one trunk can never mask another: after a trunk switch moved
 MWServer's story to master, the dev-pinned tile asserted a two-day silence
 while master went green in the feed below it. The preferred trunk renames the
-legacy plain tiles in place; later trunks sit beside it.
+legacy plain tile in place; later trunks sit beside it.
+
+Since 2026-08-25 that is ONE tile per trunk rather than two. The verdict and
+the commit it was measured at used to be a "CI build" badge beside a "Last
+green" SHA, and this file's own scoping rules were what stopped the two from
+ever naming different branches. Merging them makes that structural: the trunk
+scope tested here now decides a single tile, and the "same branch" cases below
+assert the evidence line rather than a second tile.
 
 Monkeypatches nothing: apply_tiles takes the run window as an argument.
 
@@ -65,7 +72,7 @@ class CiBuildTileIsTrunkScoped(unittest.TestCase):
     def test_a_red_pull_request_does_not_turn_the_badge_red(self):
         """The reported bug, verbatim."""
         board = board_with([])
-        ci_status.apply_tiles(board, "o/r", "Phoenix", RUNS, TRUNKS)
+        ci_status.apply_tiles(board, "Phoenix", RUNS, TRUNKS)
         t = tile(board, "CI build · dev")
         self.assertEqual(t["n"], "✓")
         self.assertEqual(t["tone"], "go")
@@ -75,7 +82,7 @@ class CiBuildTileIsTrunkScoped(unittest.TestCase):
         """Scoping must not become a way to never show bad news."""
         runs = [run("failure", "dev", "deadbee", "2026-08-04T19:00:00Z", "u/dev-red")] + RUNS
         board = board_with([])
-        ci_status.apply_tiles(board, "o/r", "Phoenix", runs, TRUNKS)
+        ci_status.apply_tiles(board, "Phoenix", runs, TRUNKS)
         self.assertEqual(tile(board, "CI build · dev")["n"], "✗")
         self.assertEqual(tile(board, "CI build · dev")["tone"], "you")
         self.assertEqual(tile(board, "CI build · dev")["href"], "u/dev-red")
@@ -88,28 +95,27 @@ class CiBuildTileIsTrunkScoped(unittest.TestCase):
             run("failure", "dev", "deadbee", "2026-08-04T19:00:00Z", "u/dev-red"),
         ]
         board = board_with([])
-        ci_status.apply_tiles(board, "o/r", "Phoenix", runs, TRUNKS)
+        ci_status.apply_tiles(board, "Phoenix", runs, TRUNKS)
         self.assertEqual(tile(board, "CI build · dev")["n"], "✗")
         self.assertEqual(tile(board, "CI build · dev")["href"], "u/dev-red")
         self.assertEqual(tile(board, "CI build · main")["n"], "✓")
         self.assertEqual(tile(board, "CI build · main")["href"], "u/main-cron")
 
-    def test_both_trunks_get_a_pair_side_by_side(self):
+    def test_both_trunks_get_a_tile_side_by_side(self):
         """Ruled 2026-08-20: dev and master together."""
         board = board_with([])
-        ci_status.apply_tiles(board, "o/r", "Phoenix", RUNS, TRUNKS)
+        ci_status.apply_tiles(board, "Phoenix", RUNS, TRUNKS)
         self.assertIsNotNone(tile(board, "CI build · dev"))
-        self.assertIsNotNone(tile(board, "Last green · dev"))
         self.assertIsNotNone(tile(board, "CI build · main"))
-        self.assertIsNotNone(tile(board, "Last green · main"))
-        self.assertEqual(tile(board, "Last green · main")["href"], "u/main-green")
+        self.assertEqual(tile(board, "CI build · main")["href"], "u/main-green")
+        self.assertTrue(tile(board, "CI build · main")["meta"].startswith("f7aaabb"))
 
     def test_the_preferred_trunk_renames_the_legacy_plain_tile_in_place(self):
         """Boards deployed before the split hold a plain "CI build" tile.
         It must rename, not orphan: a dead plain tile would keep asserting a
         state no collector maintains."""
         board = board_with([{"label": "CI build", "n": "✗", "tone": "you"}])
-        ci_status.apply_tiles(board, "o/r", "Phoenix", RUNS, TRUNKS)
+        ci_status.apply_tiles(board, "Phoenix", RUNS, TRUNKS)
         self.assertIsNone(tile(board, "CI build"))
         self.assertEqual(tile(board, "CI build · dev")["n"], "✓")
 
@@ -119,7 +125,7 @@ class CiBuildTileIsTrunkScoped(unittest.TestCase):
             run("success", "main", "f7aaabb46", "2026-08-05T07:16:00Z", "u/main-cron"),
         ]
         board = board_with([])
-        ci_status.apply_tiles(board, "o/r", "Phoenix", runs, TRUNKS)
+        ci_status.apply_tiles(board, "Phoenix", runs, TRUNKS)
         self.assertEqual(tile(board, "CI build · main")["n"], "✓")
         self.assertEqual(tile(board, "CI build · main")["href"], "u/main-cron")
 
@@ -128,7 +134,7 @@ class CiBuildTileIsTrunkScoped(unittest.TestCase):
         fall back to a feature branch — that is the original bug."""
         runs = [run("failure", "some/feature", "aaa", "2026-08-05T09:00:00Z", "u/feat")]
         board = board_with([{"label": "CI build", "n": "✓", "tone": "go"}])
-        ci_status.apply_tiles(board, "o/r", "Phoenix", runs, TRUNKS)
+        ci_status.apply_tiles(board, "Phoenix", runs, TRUNKS)
         t = tile(board, "CI build")
         self.assertEqual(t["n"], "✓")
         self.assertEqual(t["tone"], "go")
@@ -143,35 +149,35 @@ class CiBuildTileIsTrunkScoped(unittest.TestCase):
             run("failure", "dev", "ccc", "2026-08-05T07:00:00Z", "u/dev-red"),
         ]
         board = board_with([])
-        ci_status.apply_tiles(board, "o/r", "Phoenix", runs, TRUNKS)
+        ci_status.apply_tiles(board, "Phoenix", runs, TRUNKS)
         self.assertEqual(tile(board, "CI build · dev")["href"], "u/dev-red")
 
     def test_writes_only_to_its_own_column(self):
         board = board_with([])
-        ci_status.apply_tiles(board, "o/r", "Phoenix", RUNS, TRUNKS)
+        ci_status.apply_tiles(board, "Phoenix", RUNS, TRUNKS)
         self.assertEqual(columns(board)[1]["items"], [])
 
     def test_is_idempotent(self):
         board = board_with([])
         for _ in range(3):
-            ci_status.apply_tiles(board, "o/r", "Phoenix", RUNS, TRUNKS)
+            ci_status.apply_tiles(board, "Phoenix", RUNS, TRUNKS)
         labels = [i["label"] for i in columns(board)[0]["items"]]
         self.assertEqual(labels.count("CI build · dev"), 1)
         self.assertEqual(labels.count("CI build · main"), 1)
-        self.assertEqual(labels.count("Last green · dev"), 1)
-        self.assertEqual(labels.count("Last green · main"), 1)
 
 
-class LastGreenIsScopedToTheSameBranch(unittest.TestCase):
-    """Each pair is read together; sourcing a pair from different branches
-    would produce a column that quietly contradicts itself."""
+class TheEvidenceIsScopedToTheSameBranch(unittest.TestCase):
+    """The tile is read as one statement, so its verdict and its commit have to
+    come from one branch. They were two tiles until 2026-08-25 and could in
+    principle be sourced apart, which would give a column that quietly
+    contradicts itself — a ✓ from dev over a SHA from main."""
 
-    def test_last_green_comes_from_the_same_trunk_as_its_badge(self):
+    def test_the_commit_comes_from_the_same_trunk_as_the_verdict(self):
         board = board_with([])
-        ci_status.apply_tiles(board, "o/r", "Phoenix", RUNS, TRUNKS)
-        self.assertTrue(tile(board, "Last green · dev")["n"].startswith("500b639"),
-                        tile(board, "Last green · dev")["n"])
-        self.assertEqual(tile(board, "Last green · dev")["href"], "u/dev-green")
+        ci_status.apply_tiles(board, "Phoenix", RUNS, TRUNKS)
+        t = tile(board, "CI build · dev")
+        self.assertTrue(t["meta"].startswith("500b639"), t["meta"])
+        self.assertEqual(t["href"], "u/dev-green")
 
     def test_a_green_pull_request_is_not_the_projects_last_green(self):
         runs = [
@@ -180,14 +186,17 @@ class LastGreenIsScopedToTheSameBranch(unittest.TestCase):
             run("success", "dev", "500b6394a", "2026-08-04T17:07:00Z", "u/dev-green"),
         ]
         board = board_with([])
-        ci_status.apply_tiles(board, "o/r", "Phoenix", runs, TRUNKS)
-        self.assertTrue(tile(board, "Last green · dev")["n"].startswith("500b639"))
+        ci_status.apply_tiles(board, "Phoenix", runs, TRUNKS)
+        t = tile(board, "CI build · dev")
+        self.assertIn("500b639", t["meta"])
+        self.assertNotIn("cafebab", t["meta"])
 
-    def test_trunk_red_all_window_says_none_recent(self):
+    def test_trunk_red_all_window_admits_it_has_no_green(self):
         runs = [run("failure", "dev", "deadbee", "2026-08-04T19:00:00Z", "u/dev-red")]
         board = board_with([])
-        ci_status.apply_tiles(board, "o/r", "Phoenix", runs, TRUNKS)
-        self.assertEqual(tile(board, "Last green · dev")["n"], "none recent")
+        ci_status.apply_tiles(board, "Phoenix", runs, TRUNKS)
+        self.assertEqual(tile(board, "CI build · dev")["meta"],
+                         "no green in the window")
 
 
 class ParseTrunks(unittest.TestCase):

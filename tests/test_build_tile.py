@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+"""Unit tests for the merged build compare tile and lib.fmt_age.
+
+One tile carries a trunk's whole build state: the verdict as the headline, and
+the commit that verdict was measured at on the tile's `meta` line. It was two
+tiles until 2026-08-25, and the second one existed because ✓/✗ is least useful
+exactly when a build goes red — the board stopped saying anything about what
+still worked, so red read as "everything is unknown" rather than "here is the
+last thing that wasn't".
+
+These tests pin that the evidence still answers the second question while the
+current build is red, and that merging it in did not let it start answering the
+FIRST one: a bare SHA under a ✗ must never read as the SHA that failed.
+
+Monkeypatches lib.gh_runs (no gh / network).
+
+Run:  python3 -m unittest discover -s tests   (from the statusgen root)
+"""
+import datetime
+import os
+import sys
+import unittest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "bin", "collect"))
+
+import lib
+import ci_status
+
+
+RUNS = [
+    {"conclusion": "failure", "headSha": "80c7a2f9911",
+     "createdAt": "2026-08-04T13:32:00Z", "url": "u/red"},
+    {"conclusion": "cancelled", "headSha": "3711ba0aaaa",
+     "createdAt": "2026-08-04T13:18:00Z", "url": "u/cancelled"},
+    {"conclusion": "success", "headSha": "4bfbe2bcccc",
+     "createdAt": "2026-08-04T10:00:00Z", "url": "u/green"},
+]
+
+GREEN_FIRST = [RUNS[2]] + RUNS[:2]
+
+
+def board_with(items):
+    """The real board shape: one compare SECTION holding titled COLUMNS."""
+    return {"sections": [{"kind": "compare", "title": "Phoenix ⟷ MWServer",
+                          "columns": [{"title": "Phoenix", "items": list(items)},
+                                      {"title": "MWServer", "items": []}]}]}
+
+
+def columns(board):
+    return board["sections"][0]["columns"]
+
+
+def tile(board, label, col=0):
+    return next((t for t in columns(board)[col]["items"]
+                 if t.get("label") == label), None)
+
+
+class BuildTileVerdict(unittest.TestCase):
+    def setUp(self):
+        self._real = lib.gh_runs
+        self.addCleanup(lambda: setattr(lib, "gh_runs", self._real))
+        lib.gh_runs = lambda repo, limit: RUNS
+
+    def test_a_green_trunk_states_the_verdict_and_the_commit(self):
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", GREEN_FIRST, [])
+
+        t = tile(board, "CI build")
+        self.assertEqual(t["n"], "✓")
+        self.assertEqual(t["tone"], "go")
+        self.assertEqual(t["meta"], "4bfbe2b")
+        self.assertEqual(t["href"], "u/green")
+        # The TIMESTAMP travels, not a rendered age.
+        self.assertEqual(t["since"], "2026-08-04T10:00:00Z")
+
+    def test_a_red_trunk_keeps_naming_the_last_green(self):
+        """The reason the evidence exists: red must not blank out the last
+        good commit."""
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", RUNS, [])
+
+        t = tile(board, "CI build")
+        self.assertEqual(t["n"], "✗")
+        self.assertEqual(t["tone"], "you")
+        self.assertIn("4bfbe2b", t["meta"])
+        self.assertEqual(t["since"], "2026-08-04T10:00:00Z")
+
+    def test_a_red_trunk_says_the_sha_is_the_last_green_not_the_failure(self):
+        """The risk merging created. Under a ✓ the SHA is the commit that
+        passed; under a ✗ the same bare SHA reads as the commit that failed,
+        which is the opposite of what it is. The line has to say so."""
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", RUNS, [])
+        self.assertEqual(tile(board, "CI build")["meta"], "last green 4bfbe2b")
+
+    def test_a_red_trunk_links_the_failure_it_is_reporting(self):
+        """The headline is ✗, so the click has to reach the ✗. The green run
+        stays reachable through the runs feed, and its SHA is on the tile."""
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", RUNS, [])
+        self.assertEqual(tile(board, "CI build")["href"], "u/red")
+
+    def test_never_bakes_a_relative_age_into_the_tile(self):
+        """The bug this replaced: the collector wrote "4bfbe2b · 24m ago" into
+        board.json, which is true for as long as it takes to publish the file
+        and wrong forever after. A board left open kept insisting a build had
+        gone green 24 minutes ago, hours later, with no such run in the history
+        directly below it — the board contradicting itself, which is worse than
+        the board being stale, because the reader cannot tell which half lies."""
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", RUNS, [])
+        t = tile(board, "CI build")
+        self.assertNotIn("ago", t["n"])
+        self.assertNotIn("ago", t["meta"])
+
+    def test_skips_cancelled_and_failed_commits(self):
+        """A superseded (cancelled) run is not evidence of anything."""
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", RUNS, [])
+        self.assertNotIn("3711ba0", tile(board, "CI build")["meta"])
+        self.assertNotIn("80c7a2f", tile(board, "CI build")["meta"])
+
+    def test_says_so_rather_than_claiming_a_stale_green(self):
+        runs = [r for r in RUNS if r["conclusion"] != "success"]
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", runs, [])
+
+        t = tile(board, "CI build")
+        self.assertEqual(t["n"], "✗")
+        self.assertEqual(t["meta"], "no green in the window")
+        # No stamp: there is nothing for an age to date.
+        self.assertNotIn("since", t)
+
+    def test_an_empty_window_leaves_the_board_alone(self):
+        """statusgen's collector contract: absent data → board untouched.
+        (main() already skips the whole pass when gh returns nothing.)"""
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", [], [])
+        self.assertEqual(columns(board)[0]["items"], [])
+
+    def test_writes_only_to_its_own_column(self):
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", RUNS, [])
+        self.assertEqual(columns(board)[1]["items"], [])
+
+    def test_is_idempotent(self):
+        """Every status push re-runs collectors; tiles must not accumulate."""
+        board = board_with([])
+        for _ in range(3):
+            ci_status.apply_tiles(board, "Phoenix", RUNS, [])
+        labels = [i["label"] for i in columns(board)[0]["items"]]
+        self.assertEqual(labels.count("CI build"), 1)
+
+
+class RetiresTheSeparateLastGreenTile(unittest.TestCase):
+    """The migration. An upsert never removes, so a board that carried the old
+    pair would keep the "Last green" tile with the SHA it last held while the
+    merged tile moved on — a tile no collector writes any more, stating a stale
+    number beside the live ones in the same type."""
+
+    def setUp(self):
+        self._real = lib.gh_runs
+        self.addCleanup(lambda: setattr(lib, "gh_runs", self._real))
+        lib.gh_runs = lambda repo, limit: RUNS
+
+    def test_the_old_tile_goes(self):
+        board = board_with([
+            {"label": "CI build", "n": "✓", "tone": "go"},
+            {"label": "Last green", "n": "0000000", "tone": "go"},
+        ])
+        ci_status.apply_tiles(board, "Phoenix", GREEN_FIRST, [])
+
+        labels = [i["label"] for i in columns(board)[0]["items"]]
+        self.assertNotIn("Last green", labels)
+        self.assertEqual(labels.count("CI build"), 1)
+
+    def test_the_branch_suffixed_old_tiles_go_too(self):
+        board = board_with([
+            {"label": "CI build · dev", "n": "✓", "tone": "go"},
+            {"label": "Last green · dev", "n": "0000000", "tone": "go"},
+            {"label": "Last green · main", "n": "1111111", "tone": "go"},
+        ])
+        ci_status.apply_tiles(board, "Phoenix", GREEN_FIRST, [])
+
+        labels = [i["label"] for i in columns(board)[0]["items"]]
+        self.assertEqual([l for l in labels if l.startswith("Last green")], [])
+
+    def test_a_dead_window_keeps_its_hands_off_the_old_tile(self):
+        """Same contract as everywhere else here: with nothing settled to
+        replace it with, deleting the old tile would remove information and put
+        nothing in its place."""
+        board = board_with([{"label": "Last green", "n": "0000000"}])
+        ci_status.apply_tiles(board, "Phoenix", [], [])
+        self.assertIsNotNone(tile(board, "Last green"))
+
+
+class FmtAge(unittest.TestCase):
+    NOW = datetime.datetime(2026, 8, 4, 12, 0, tzinfo=datetime.timezone.utc)
+
+    def test_buckets(self):
+        for iso, want in [
+            ("2026-08-04T11:59:30Z", "just now"),
+            ("2026-08-04T11:51:00Z", "9m ago"),
+            ("2026-08-04T09:00:00Z", "3h ago"),
+            ("2026-08-02T12:00:00Z", "2d ago"),
+        ]:
+            self.assertEqual(lib.fmt_age(iso, now=self.NOW), want, iso)
+
+    def test_a_future_stamp_reads_as_just_now_not_a_negative_age(self):
+        """Runner clock skew shouldn't render "-1m ago" on the board."""
+        self.assertEqual(lib.fmt_age("2026-08-04T12:00:30Z", now=self.NOW),
+                         "just now")
+
+    def test_unparseable_is_none_so_callers_can_omit_it(self):
+        self.assertIsNone(lib.fmt_age("garbage", now=self.NOW))
+        self.assertIsNone(lib.fmt_age("", now=self.NOW))
+        self.assertIsNone(lib.fmt_age(None, now=self.NOW))
+
+
+if __name__ == "__main__":
+    unittest.main()

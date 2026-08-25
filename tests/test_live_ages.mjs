@@ -132,4 +132,51 @@ test("a tile without `since` renders no age at all", () => {
   assert.doesNotMatch(tile.textContent, /ago/);
 });
 
+// The build tile, merged 2026-08-25. Its `meta` line carries the commit the
+// verdict was measured at, so the age now dates the COMMIT rather than the ✓.
+// Everything above still governs when the age is computed; these pin where it
+// lands.
+
+test("a tile with `meta` renders the headline, the label and the evidence", () => {
+  const tile = api.buildStatTile({
+    n: "\u2713", label: "CI build \u00b7 dev", meta: "132dab0", tone: "go",
+  });
+  assert.match(tile.textContent, /\u2713/);
+  assert.match(tile.textContent, /CI build \u00b7 dev/);
+  assert.match(tile.textContent, /132dab0/);
+});
+
+test("the age attaches to the commit, not to the verdict", () => {
+  // The failure this prevents: "\u2713 \u00b7 4d ago" reads as a tick that is four days
+  // old, which is a claim about the tile's freshness. The tick is current; the
+  // COMMIT is four days old, and the line naming the commit is where the age
+  // belongs.
+  const fourDaysAgo = new Date(Date.now() - 4 * 24 * 3600 * 1000).toISOString();
+  const tile = api.buildStatTile({
+    n: "\u2713", label: "CI build \u00b7 dev", meta: "132dab0", since: fourDaysAgo,
+  });
+  const headline = tile.children[0].textContent;
+  const evidence = tile.children[2].textContent;
+  assert.doesNotMatch(headline, /ago/);
+  assert.match(evidence, /132dab0 \u00b7 4d ago/);
+});
+
+test("a `meta` with no `since` renders the evidence and no age", () => {
+  const tile = api.buildStatTile({
+    n: "\u2717", label: "CI build \u00b7 dev", meta: "no green in the window",
+  });
+  assert.match(tile.textContent, /no green in the window/);
+  assert.doesNotMatch(tile.textContent, /ago/);
+});
+
+test("a red tile says the commit is the last GREEN one", () => {
+  // A bare SHA under a \u2717 reads as the commit that failed, which is the
+  // opposite of what it is. The collector spells it out; this pins that the
+  // renderer passes the words through rather than reformatting them away.
+  const tile = api.buildStatTile({
+    n: "\u2717", label: "CI build \u00b7 dev", meta: "last green 132dab0", tone: "you",
+  });
+  assert.match(tile.textContent, /last green 132dab0/);
+});
+
 console.log(`\n${passed} passing`);

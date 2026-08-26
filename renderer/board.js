@@ -287,18 +287,24 @@
     // `meta` is the tile's provenance line: the evidence the headline was read
     // from, carried inside the tile instead of in a second tile beside it.
     //
-    // The age dates whatever the line names, so it joins `meta` when there is
-    // one and stays on the headline when there is not. A build tile then reads
-    // ✓ / "CI build · dev" / "132dab0 · 4d" — the verdict, what it is a verdict
-    // on, and the commit it was measured from. That used to be two tiles, and
-    // two tiles could disagree: a ✓ from one branch beside a SHA from another.
+    // The age dates whatever the line names, so it goes under `meta` when there
+    // is one and stays on the headline when there is not. A build tile then
+    // reads ✓ / "CI build · dev" / "132dab0" / "4d ago" — the verdict, what it
+    // is a verdict on, the commit it was measured from, and how old that commit
+    // is. That used to be two tiles, and two tiles could disagree: a ✓ from one
+    // branch beside a SHA from another.
     if (age && !item.meta) n.append(el("span", { class: "tile-age" }, ` · ${age}`));
     if (item.stale) n.append(el("span", { class: "stale-flag", "aria-label": "stale" }, " ⚠"));
     stat.append(n);
     stat.append(el("div", { class: "l" }, item.label ?? ""));
     if (item.meta) {
-      stat.append(el("div", { class: "m" },
-                     age ? `${item.meta} · ${age}` : String(item.meta)));
+      stat.append(el("div", { class: "m" }, String(item.meta)));
+      // The age gets its own line under the provenance rather than riding on the
+      // end of it. The provenance line truncates instead of wrapping, so in a
+      // narrow tile the ellipsis ate the age first — and the age is the fact a
+      // build tile is read for. A SHA is a fixed seven characters and fits; the
+      // pair did not.
+      if (age) stat.append(el("div", { class: "m age" }, age));
     }
     return stat;
   }

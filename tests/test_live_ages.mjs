@@ -157,8 +157,26 @@ test("the age attaches to the commit, not to the verdict", () => {
   });
   const headline = tile.children[0].textContent;
   const evidence = tile.children[2].textContent;
+  const ageLine = tile.children[3].textContent;
   assert.doesNotMatch(headline, /ago/);
-  assert.match(evidence, /132dab0 \u00b7 4d ago/);
+  assert.match(evidence, /132dab0/);
+  assert.match(ageLine, /4d ago/);
+});
+
+test("the age is its own line, so a narrow tile cannot truncate it away", () => {
+  // The failure this prevents: `.stat .m` truncates rather than wraps, and the
+  // age rode on the tail of the SHA line. A tile narrow enough to ellipse cut
+  // the age first - the one fact a build tile is read for. Keeping them as two
+  // elements means the SHA line can still truncate and the age still survives.
+  const fourDaysAgo = new Date(Date.now() - 4 * 24 * 3600 * 1000).toISOString();
+  const tile = api.buildStatTile({
+    n: "\u2713", label: "CI build \u00b7 dev", meta: "132dab0", since: fourDaysAgo,
+  });
+  const evidence = tile.children[2];
+  const ageLine = tile.children[3];
+  assert.doesNotMatch(evidence.textContent, /ago/);
+  assert.equal(ageLine.getAttribute("class"), "m age");
+  assert.equal(ageLine.textContent, api.fmtAge(fourDaysAgo));
 });
 
 test("a `meta` with no `since` renders the evidence and no age", () => {

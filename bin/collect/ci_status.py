@@ -349,12 +349,17 @@ def main():
     window = {}
     forge_repos = {repo for repo, _, _, _ in forge_sources}
     for repo, _, _, _ in sources:
-        if repo in forge_repos:
+        from_forge = repo in forge_repos
+        if from_forge:
             runs = lib.forgejo_runs(forge_url, forge_token, repo, 40)
         else:
             runs = lib.gh_runs(repo, 40)
         if runs:
             window[repo] = runs
+        else:
+            # Silence leaves the tiles holding their last verdict, which is how
+            # a board goes on reporting a green that stopped being true.
+            print(lib.quiet_repo_note(repo, runs, from_forge=from_forge))
     lines = lib.console_lines(sources, self_run=self_run,
                               fetched={r: list(v) for r, v in window.items()})
     if not lines:

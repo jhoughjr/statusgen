@@ -402,6 +402,30 @@ def gh_runs(repo, limit):
         return None
 
 
+def quiet_repo_note(repo, runs, from_forge=False):
+    """A line to print when a repo contributed nothing, or None when it did.
+
+    A repo that returns nothing leaves its tiles holding their last verdict,
+    which is the right behaviour and an invisible one. Silence is how a board
+    goes on reporting a green that stopped being true, so a repo that says
+    nothing has to say so.
+
+    The two silences have different causes and want different words. `None` is
+    a forge that did not answer. An empty list is a forge that answered and had
+    nothing to report, which on a Forgejo mirror usually means Actions is
+    switched off: a mirror is created with `has_actions: false`, so it carries
+    the code, runs nothing, and looks exactly like a quiet repo.
+    """
+    if runs:
+        return None
+    if runs is None:
+        return f"ci-status: {repo} did not answer — its tiles keep their last verdict"
+    if from_forge:
+        return (f"ci-status: {repo} has no runs on the forge — check that Actions "
+                "is enabled on it, because a new mirror defaults to off")
+    return f"ci-status: {repo} has no runs in the window — its tiles keep their last verdict"
+
+
 # ── Forgejo ─────────────────────────────────────────────────────────────────
 #
 # MWServer's real CI is moving to a Forgejo instance in house. A board which

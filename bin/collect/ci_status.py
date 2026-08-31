@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
-"""ci_status.py — surface recent GitHub Actions runs on a board as a
-"CI — recent runs" console section, pulled live via `gh`.
+"""ci_status.py — surface recent CI runs on a board as a "CI — recent runs"
+console section, pulled live from GitHub via `gh` and from Forgejo via its API.
 
 Config (~/.roostrc):
   ROOST_CI_BOARD=clauffice                      # board dir under the status site
   ROOST_CI_REPOS=owner/repo:Label:4[:logo],owner/other:Other:3[:logo]
+
+  # Repos whose CI runs on the Forgejo instance instead. Same spec syntax, and
+  # they join the same feed, so one board reports both forges. All three keys
+  # are needed together, and unset means the board behaves as it always did.
+  ROOST_CI_FORGEJO_URL=https://forgejo.example.net
+  ROOST_CI_FORGEJO_TOKEN=...                    # an API token for that instance
+  ROOST_CI_FORGEJO_REPOS=owner/repo:Label:4[:logo]
 
 `logo` tags every one of that repo's rows with a stack mark (swift/ts/js), so
 one merged chronological feed still says which side each run belongs to.
@@ -314,7 +321,25 @@ def main():
         print(f"ci-status: {board_path} not found — skipping")
         return 0
 
+    # Repos whose CI runs on the Forgejo instance rather than on GitHub. They
+    # take the same spec syntax and join the same window, so a board can report
+    # both forges at once. This matters during a migration: a repo whose real
+    # pipeline has moved would otherwise keep showing its abandoned GitHub runs,
+    # and the badge would report a project as red while it is green in house.
+    #
+    # Unset means unchanged. A board with no Forgejo config behaves exactly as
+    # it did before, by the "no config, no effect" rule at the top of lib.
+    forge_spec = cfg.get("ROOST_CI_FORGEJO_REPOS", "")
+    forge_url = cfg.get("ROOST_CI_FORGEJO_URL", "")
+    forge_token = cfg.get("ROOST_CI_FORGEJO_TOKEN", "")
+
     sources = parse_sources(spec)
+    forge_sources = parse_sources(forge_spec) if forge_spec else []
+    if forge_sources and not (forge_url and forge_token):
+        print("ci-status: ROOST_CI_FORGEJO_REPOS set without "
+              "ROOST_CI_FORGEJO_URL/TOKEN — skipping the forge")
+        forge_sources = []
+    sources = sources + forge_sources
     trunks = parse_trunks(cfg)
     # The run we are executing inside, if CI told us — see lib.self_run_from.
     self_run = lib.self_run_from(cfg)
@@ -322,8 +347,12 @@ def main():
     # all read from this window; each takes a shallow copy because
     # apply_self_run runs once per consumer.
     window = {}
+    forge_repos = {repo for repo, _, _, _ in forge_sources}
     for repo, _, _, _ in sources:
-        runs = lib.gh_runs(repo, 40)
+        if repo in forge_repos:
+            runs = lib.forgejo_runs(forge_url, forge_token, repo, 40)
+        else:
+            runs = lib.gh_runs(repo, 40)
         if runs:
             window[repo] = runs
     lines = lib.console_lines(sources, self_run=self_run,

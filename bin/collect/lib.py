@@ -11,6 +11,8 @@ import os
 import re
 import subprocess
 import pathlib
+import urllib.error
+import urllib.request
 
 ROOSTRC = os.path.expanduser("~/.roostrc")
 
@@ -398,6 +400,137 @@ def gh_runs(repo, limit):
         return json.loads(r.stdout)
     except json.JSONDecodeError:
         return None
+
+
+# ── Forgejo ─────────────────────────────────────────────────────────────────
+#
+# MWServer's real CI is moving to a Forgejo instance in house. A board which
+# reads only GitHub would keep reporting a dead pipeline while the live one
+# runs somewhere it cannot see, so the badge would say red for a project that
+# is green.
+#
+# Everything downstream of the fetch reads a list of run dicts and does not
+# care which forge produced them. So these map a Forgejo run onto the keys
+# `gh_runs` returns, rather than teaching `settled_pools`, `apply_tiles`, the
+# feed and the ledger a second shape.
+#
+# The field names are not the GitHub ones in snake case, and the differences
+# are not guessable. They come from the instance's own swagger:
+#
+#     headSha      <- commit_sha     (not head_sha)
+#     headBranch   <- prettyref      (a ref, so the prefix comes off)
+#     createdAt    <- created        (not created_at)
+#     updatedAt    <- updated
+#     startedAt    <- started
+#     url          <- html_url
+#     databaseId   <- id
+#     workflowName <- workflow_id
+#     displayTitle <- title
+
+# Forgejo folds two axes into one field. GitHub reports `status` (queued,
+# in_progress, completed) and `conclusion` (success, failure, ...) separately,
+# and Forgejo reports one `status` carrying either kind of word.
+FORGEJO_TERMINAL = {"success", "failure", "cancelled", "skipped"}
+
+# Forgejo's pending words are NOT GitHub's, and two of them are the reason this
+# mapping exists rather than a pass-through. `CONSOLE_SKIP` above holds GitHub's
+# vocabulary, so a Forgejo run reported as `running` or `blocked` would fall
+# through the settled filter and a build still in flight would set a badge.
+FORGEJO_PENDING = {
+    "waiting": "queued",
+    "blocked": "queued",
+    "unknown": "queued",
+    "running": "in_progress",
+}
+
+# Forgejo writes this when a timestamp is unset, rather than omitting the key.
+_ZERO_TIME = "0001-01-01"
+
+
+def _forgejo_finished(run):
+    """True when a run has stopped, read from the clock rather than the word.
+
+    The terminal vocabulary above was taken from one instance, and a word this
+    set does not know would otherwise be filed as pending, which hides a real
+    failure behind the previous verdict. `stopped` is structural: a run that
+    carries a real stop time is over, whatever it calls itself.
+    """
+    stopped = (run.get("stopped") or "").strip()
+    return bool(stopped) and not stopped.startswith(_ZERO_TIME)
+
+
+def forgejo_verdict(run):
+    """(status, conclusion) in GitHub's vocabulary, from Forgejo's one field."""
+    raw = (run.get("status") or "").strip().lower()
+    if raw in FORGEJO_TERMINAL:
+        return "completed", raw
+    if _forgejo_finished(run):
+        # Over, but by a name this code does not know. Report it settled and
+        # keep the raw word as the conclusion. It will not equal "success", so
+        # the tile reads red rather than inheriting the last green, which is
+        # the safe direction to be wrong in for a status board.
+        return "completed", (raw or "failure")
+    return FORGEJO_PENDING.get(raw, "queued"), None
+
+
+def forgejo_branch(run):
+    """The branch name, from a ref like `refs/heads/dev`."""
+    ref = (run.get("prettyref") or "").strip()
+    for prefix in ("refs/heads/", "refs/tags/"):
+        if ref.startswith(prefix):
+            return ref[len(prefix):]
+    return ref
+
+
+def forgejo_run_to_gh(run, base_url="", repo=""):
+    """One Forgejo run dict, in the shape `gh_runs` returns."""
+    status, conclusion = forgejo_verdict(run)
+    url = (run.get("html_url") or "").strip()
+    if url.startswith("/"):
+        # Some builds return a path rather than an absolute URL, and a tile's
+        # href has to leave the board's own origin to be useful.
+        url = base_url.rstrip("/") + url
+    return {
+        "status": status,
+        "conclusion": conclusion,
+        "headBranch": forgejo_branch(run),
+        "event": run.get("event") or run.get("trigger_event") or "",
+        "createdAt": run.get("created") or "",
+        "startedAt": run.get("started") or "",
+        "updatedAt": run.get("updated") or run.get("stopped") or "",
+        "url": url,
+        "headSha": run.get("commit_sha") or "",
+        "databaseId": run.get("id"),
+        "workflowName": str(run.get("workflow_id") or ""),
+        "displayTitle": run.get("title") or "",
+    }
+
+
+def forgejo_runs(base_url, token, repo, limit):
+    """Runs for one Forgejo repo, in `gh_runs` shape. None on any failure.
+
+    Non-fatal by the rule at the top of this file: a forge that is unreachable
+    leaves the board untouched rather than blanking a tile.
+    """
+    if not base_url or not token or not repo:
+        return None
+    url = (f"{base_url.rstrip('/')}/api/v1/repos/{repo}/actions/runs"
+           f"?limit={int(limit)}")
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"token {token}",
+        "Accept": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+        return None
+    # The endpoint wraps the list, and a bare list is accepted too so that a
+    # shape change does not blank the board.
+    runs = payload.get("workflow_runs") if isinstance(payload, dict) else payload
+    if not isinstance(runs, list):
+        return None
+    return [forgejo_run_to_gh(r, base_url=base_url, repo=repo) for r in runs]
 
 
 # Timing fields on top of gh_runs' set. `startedAt` is when the run actually

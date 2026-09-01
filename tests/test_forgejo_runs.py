@@ -74,6 +74,38 @@ class VerdictTest(unittest.TestCase):
         self.assertEqual(lib.forgejo_verdict(run("provisioning")),
                          ("queued", None))
 
+    def test_a_running_run_stays_in_flight_on_the_epoch_sentinel(self):
+        # The regression. The fixture above carries the year-zero sentinel from
+        # the swagger, and the live instance answers the Unix epoch instead. The
+        # board read `latest MWServer - dev = running` off a build that was six
+        # minutes into compiling, because the epoch parsed as a real stop time.
+        self.assertEqual(
+            lib.forgejo_verdict(run("running", stopped="1970-01-01T00:00:00Z")),
+            ("in_progress", None))
+
+    def test_every_pending_word_outranks_a_stop_time(self):
+        # A word that means "not over" wins wherever the clock disagrees, so a
+        # sentinel spelled a way this code does not list cannot settle a run
+        # that Forgejo itself reports as unfinished.
+        for word, expected in (("running", "in_progress"),
+                               ("waiting", "queued"),
+                               ("blocked", "queued"),
+                               ("unknown", "queued")):
+            for sentinel in ("1970-01-01T00:00:00Z", "0001-01-01T00:00:00Z",
+                             "2026-08-31T15:20:00Z"):
+                with self.subTest(word=word, stopped=sentinel):
+                    self.assertEqual(
+                        lib.forgejo_verdict(run(word, stopped=sentinel)),
+                        (expected, None))
+
+    def test_an_unknown_word_on_the_epoch_sentinel_stays_pending(self):
+        # The clock still decides for words the vocabulary does not know, so the
+        # epoch has to read as unset there too.
+        self.assertEqual(
+            lib.forgejo_verdict(
+                run("provisioning", stopped="1970-01-01T00:00:00Z")),
+            ("queued", None))
+
 
 class FieldMapTest(unittest.TestCase):
     def test_the_fields_map_onto_the_gh_run_list_shape(self):
@@ -128,6 +160,13 @@ class SettledFilterTest(unittest.TestCase):
 
     def test_a_running_run_is_not_evidence(self):
         self.assertEqual(self._pools(run("running")), [])
+
+    def test_a_running_run_on_the_epoch_sentinel_is_not_evidence(self):
+        # The same case at the consumer, where the damage actually lands. The
+        # verdict test above proves the mapping, and this proves the filter
+        # still drops it, which is what keeps an in-flight build off the badge.
+        self.assertEqual(
+            self._pools(run("running", stopped="1970-01-01T00:00:00Z")), [])
 
     def test_a_blocked_run_is_not_evidence(self):
         self.assertEqual(self._pools(run("blocked")), [])

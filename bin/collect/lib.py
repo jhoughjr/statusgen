@@ -467,8 +467,12 @@ FORGEJO_PENDING = {
     "running": "in_progress",
 }
 
-# Forgejo writes this when a timestamp is unset, rather than omitting the key.
-_ZERO_TIME = "0001-01-01"
+# Forgejo writes an unset timestamp rather than omitting the key, and it does
+# not write it the same way everywhere. The swagger documents the year-zero
+# form, and the live instance answers the Unix epoch on a run still in flight.
+# A sentinel this tuple does not list reads as a real stop time and settles a
+# running build, so both spellings belong here.
+_ZERO_TIMES = ("0001-01-01", "1970-01-01")
 
 
 def _forgejo_finished(run):
@@ -478,9 +482,12 @@ def _forgejo_finished(run):
     set does not know would otherwise be filed as pending, which hides a real
     failure behind the previous verdict. `stopped` is structural: a run that
     carries a real stop time is over, whatever it calls itself.
+
+    This reads the clock only for words the vocabulary does not know. See
+    `forgejo_verdict` for why a known pending word never reaches it.
     """
     stopped = (run.get("stopped") or "").strip()
-    return bool(stopped) and not stopped.startswith(_ZERO_TIME)
+    return bool(stopped) and not stopped.startswith(_ZERO_TIMES)
 
 
 def forgejo_verdict(run):
@@ -488,13 +495,21 @@ def forgejo_verdict(run):
     raw = (run.get("status") or "").strip().lower()
     if raw in FORGEJO_TERMINAL:
         return "completed", raw
+    if raw in FORGEJO_PENDING:
+        # A word that means "not over" outranks the clock. The fallback below
+        # infers the end of a run from a timestamp, and it reads an unset one
+        # as real wherever the instance spells the sentinel a way this code
+        # does not list. A running build filed as settled sets the badge from
+        # a build still in flight, which is the failure this mapping exists to
+        # prevent, so the word wins wherever the two disagree.
+        return FORGEJO_PENDING[raw], None
     if _forgejo_finished(run):
         # Over, but by a name this code does not know. Report it settled and
         # keep the raw word as the conclusion. It will not equal "success", so
         # the tile reads red rather than inheriting the last green, which is
         # the safe direction to be wrong in for a status board.
         return "completed", (raw or "failure")
-    return FORGEJO_PENDING.get(raw, "queued"), None
+    return "queued", None
 
 
 def forgejo_branch(run):

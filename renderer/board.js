@@ -618,8 +618,26 @@
     if (!rows.length) term.append(el("div", { class: "console-line console-empty" }, "no active runs"));
   }
 
+  // `scroll: N` caps the block at N rows and scrolls the rest. A console that
+  // carries the whole record would otherwise push every section below it off
+  // the page, so it keeps the height of a short feed and gives the record up
+  // to anyone who scrolls.
+  //
+  // The height comes from the row metrics rather than a fixed rem, so it still
+  // shows N rows if the console's type ever changes.
+  function consoleScrollHeight(rows) {
+    const n = Number(rows);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return `calc(${n} * 1.75em + 1.7rem)`;
+  }
+
   function renderConsole(section) {
     const term = el("div", { class: "console" });
+    const height = consoleScrollHeight(section.scroll);
+    if (height) {
+      term.classList.add("is-scroll");
+      term.style.maxHeight = height;
+    }
     fillConsole(term, section.lines || section.items || []);
     return buildBlock(section, term);
   }
@@ -1162,6 +1180,7 @@
       renderBoard,
       partitionSections,
       buildStatTile,
+      consoleScrollHeight,
       init,
       fmtAge,
       staleBanner,

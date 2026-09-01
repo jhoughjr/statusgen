@@ -49,10 +49,10 @@ class RunLedger(unittest.TestCase):
 
     def test_appends_and_dedupes_by_run_id(self):
         src = [("o/r", "Repo", None, [run(1), run(2)])]
-        added, total = ci_status.update_ledger(self.site, "clauffice", src)
-        self.assertEqual((added, total), (2, 2))
-        added, total = ci_status.update_ledger(self.site, "clauffice", src)
-        self.assertEqual((added, total), (0, 2))
+        added, entries = ci_status.update_ledger(self.site, "clauffice", src)
+        self.assertEqual((added, len(entries)), (2, 2))
+        added, entries = ci_status.update_ledger(self.site, "clauffice", src)
+        self.assertEqual((added, len(entries)), (0, 2))
 
     def test_a_run_that_left_the_window_stays(self):
         """The reason the ledger exists."""
@@ -66,9 +66,9 @@ class RunLedger(unittest.TestCase):
 
     def test_an_unsettled_run_waits_for_its_verdict(self):
         unsettled = dict(run(5), conclusion=None, status="in_progress")
-        _, total = ci_status.update_ledger(self.site, "clauffice",
-                                           [("o/r", "Repo", None, [unsettled])])
-        self.assertEqual(total, 0)
+        _, entries = ci_status.update_ledger(self.site, "clauffice",
+                                             [("o/r", "Repo", None, [unsettled])])
+        self.assertEqual(len(entries), 0)
 
     def test_page_and_shell_are_written(self):
         ci_status.update_ledger(self.site, "clauffice",
@@ -94,9 +94,9 @@ class RunLedger(unittest.TestCase):
     def test_renders_at_most_the_cap_but_records_everything(self):
         runs = [run(i, created=f"2026-08-{10 + i % 10:02d}T00:{i % 60:02d}:00Z")
                 for i in range(ci_status.LEDGER_MAX + 50)]
-        _, total = ci_status.update_ledger(self.site, "clauffice",
-                                           [("o/r", "Repo", None, runs)])
-        self.assertEqual(total, ci_status.LEDGER_MAX + 50)
+        _, entries = ci_status.update_ledger(self.site, "clauffice",
+                                             [("o/r", "Repo", None, runs)])
+        self.assertEqual(len(entries), ci_status.LEDGER_MAX + 50)
         self.assertEqual(len(self.console()["lines"]), ci_status.LEDGER_MAX)
 
     def test_a_cancelled_run_in_the_ledger_needs_overlap_evidence_too(self):
@@ -109,6 +109,84 @@ class RunLedger(unittest.TestCase):
         cancelled_line = next(ln for ln in self.console()["lines"]
                               if ln["status"] == "cancelled")
         self.assertNotIn("superseded", cancelled_line.get("meta", ""))
+
+
+class RunsConsoleCarriesTheRecord(unittest.TestCase):
+    """The board's console is built from the ledger, not a sliding window.
+
+    A window of the last few runs per repo meant a day's builds could scroll
+    out and read as never having happened, with the record one click away on
+    another page. The console now holds the record and scrolls it, which is the
+    same information in the same space.
+    """
+
+    CHIP = {"status": "watch", "text": "Repo", "cmd": "gh run watch -R o/r"}
+    FEED = [{"status": "success", "text": "Repo · dev"}, CHIP]
+
+    def _entries(self, n):
+        return [{"id": i, "repo": "o/r", "label": "Repo", "conclusion": "success",
+                 "headBranch": "dev", "event": "push",
+                 "createdAt": f"2026-08-{1 + i % 28:02d}T00:00:00Z",
+                 "url": f"https://github.com/o/r/actions/runs/{i}"}
+                for i in range(n)]
+
+    def test_the_console_shows_every_run_on_record(self):
+        section = ci_status._runs_section("clauffice", self._entries(60), self.FEED)
+        rows = [ln for ln in section["lines"] if "cmd" not in ln]
+        self.assertEqual(len(rows), 60)
+        self.assertEqual(section["count"], "60 runs")
+
+    def test_one_run_is_not_one_runs(self):
+        section = ci_status._runs_section("clauffice", self._entries(1), self.FEED)
+        self.assertEqual(section["count"], "1 run")
+
+    def test_the_block_keeps_its_height_and_scrolls(self):
+        section = ci_status._runs_section("clauffice", self._entries(60), self.FEED)
+        self.assertEqual(section["scroll"], ci_status.RUNS_ROWS)
+
+    def test_the_watch_chips_lead_so_they_are_not_below_the_fold(self):
+        """They are controls, and after 60 rows of a scrolling block nothing
+        can be found. The rule they were moved for still holds: a chip must not
+        sit BETWEEN runs, where it reads as an event at that time."""
+        section = ci_status._runs_section("clauffice", self._entries(60), self.FEED)
+        self.assertEqual(section["lines"][0]["cmd"], self.CHIP["cmd"])
+        self.assertTrue(all("cmd" not in ln for ln in section["lines"][1:]))
+
+    def test_the_cap_still_applies_to_what_is_rendered(self):
+        section = ci_status._runs_section(
+            "clauffice", self._entries(ci_status.LEDGER_MAX + 40), self.FEED)
+        rows = [ln for ln in section["lines"] if "cmd" not in ln]
+        self.assertEqual(len(rows), ci_status.LEDGER_MAX)
+
+    def test_an_empty_ledger_falls_back_to_the_live_window(self):
+        """A board collecting for the first time has no record yet, and showing
+        nothing would read as a CI system that had never run."""
+        section = ci_status._runs_section("clauffice", [], self.FEED)
+        self.assertEqual(section["lines"], self.FEED)
+
+    def test_the_old_section_is_renamed_rather_than_left_behind(self):
+        """`upsert_section` finds a section by title, so under the new name it
+        would not see the old one: the board would carry two consoles, the
+        stale one frozen at whatever it last held."""
+        board = {"sections": [{"kind": "stats", "title": "Stats"},
+                              {"kind": "console",
+                               "title": ci_status.RUNS_TITLE_WAS}]}
+        self.assertTrue(ci_status.rename_legacy_runs_section(board))
+        titles = [s.get("title") for s in board["sections"]]
+        self.assertEqual(titles, ["Stats", ci_status.RUNS_TITLE])
+
+    def test_renaming_keeps_the_section_where_it_was_arranged(self):
+        # Dropping and re-inserting would re-home it after the compare block,
+        # which is not where a hand-arranged board put it.
+        board = {"sections": [{"kind": "console", "title": ci_status.RUNS_TITLE_WAS},
+                              {"kind": "stats", "title": "Stats"}]}
+        ci_status.rename_legacy_runs_section(board)
+        self.assertEqual(board["sections"][0]["title"], ci_status.RUNS_TITLE)
+
+    def test_renaming_a_board_that_never_had_one_changes_nothing(self):
+        board = {"sections": [{"kind": "stats", "title": "Stats"}]}
+        self.assertFalse(ci_status.rename_legacy_runs_section(board))
+        self.assertEqual(board["sections"], [{"kind": "stats", "title": "Stats"}])
 
 
 class LedgerSaysWhereItRan(unittest.TestCase):

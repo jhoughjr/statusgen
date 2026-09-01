@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
-"""ci_status.py — surface recent CI runs on a board as a "CI — recent runs"
-console section, pulled live from GitHub via `gh` and from Forgejo via its API.
+"""ci_status.py — surface CI runs on a board as a scrolling "CI — runs" console
+section, pulled live from GitHub via `gh` and from Forgejo via its API.
+
+The console is rendered from the run ledger, so it holds every run on record
+rather than a window of the last few per repo, and it is capped at RUNS_ROWS
+rows so carrying the record costs it no more space than the window did.
 
 Config (~/.roostrc):
   ROOST_CI_BOARD=clauffice                      # board dir under the status site
@@ -28,6 +32,16 @@ import lib
 
 LEDGER_MAX = 200
 CHART_DAYS = 14
+
+# The board's runs console. It was "CI — recent runs" over a sliding window of
+# the last few runs per repo; it now carries the record itself and scrolls.
+# `upsert_section` finds a section by title, so the old name has to be renamed
+# in place rather than left behind, or the board grows a second copy.
+RUNS_TITLE = "CI — runs"
+RUNS_TITLE_WAS = "CI — recent runs"
+# Rows shown before the console scrolls. Ten is what the window used to render
+# (eight runs and two watch chips), so the block keeps the height it had.
+RUNS_ROWS = 10
 TEMPLATE = pathlib.Path(__file__).resolve().parent.parent.parent / "renderer" / "board.template.html"
 
 
@@ -283,6 +297,63 @@ def _write_ledger_page(led_dir, board_dir, entries):
         (led_dir / "index.html").write_text(html)
 
 
+def _runs_section(board_dir, entries, feed_lines):
+    """The board's runs console, rendered from the ledger.
+
+    Built with `_ledger_line`, the same function the runs page uses, so the two
+    surfaces cannot drift into describing the same run differently.
+
+    `feed_lines` supplies the watch chips, which are controls rather than runs
+    and so are not in the ledger. They lead, because in a scrolling block
+    anything after the rows is below the fold and unreachable without hunting
+    for it. The rule they were moved for still holds: a chip must not sit
+    BETWEEN runs, where it reads as something that happened at that time.
+
+    An empty ledger falls back to the live window, so a board collecting for
+    the first time still shows its runs.
+    """
+    if entries:
+        by_repo = {}
+        for entry in entries:
+            by_repo.setdefault(entry.get("repo"), []).append(entry)
+        chips = [ln for ln in feed_lines if "cmd" in ln]
+        rows = [_ledger_line(e, by_repo[e.get("repo")])
+                for e in entries[:LEDGER_MAX]]
+        lines = chips + rows
+        shown = len(rows)
+    else:
+        lines = feed_lines
+        shown = len(feed_lines)
+    count = f"{shown} run" if shown == 1 else f"{shown} runs"
+    return {
+        "kind": "console", "icon": "⚙️", "title": RUNS_TITLE,
+        "href": f"/{board_dir}/runs/",
+        # Not "GitHub Actions runs" any more. MWServer's CI runs on the Forgejo
+        # instance, so a feed that names one forge while showing two describes
+        # itself wrongly on the surface whose whole job is to be trusted.
+        "desc": "every run on record, newest first — the title links to the ledger",
+        "count": count,
+        "scroll": RUNS_ROWS,
+        "lines": lines,
+    }
+
+
+def rename_legacy_runs_section(board):
+    """Rename the console in place, rather than leaving two of them.
+
+    `upsert_section` finds a section by title, so under the new name it would
+    not see the old section at all: it would insert a second console and the
+    board would carry both, the stale one frozen at whatever it last held.
+    Renaming in place also keeps the section where it was hand-arranged, which
+    inserting after the compare block would not.
+    """
+    for section in board.get("sections", []):
+        if section.get("title") == RUNS_TITLE_WAS:
+            section["title"] = RUNS_TITLE
+            return True
+    return False
+
+
 def update_ledger(site, board_dir, sources_runs):
     """Append every settled run to <board>/runs/ledger.json and regenerate the
     runs page. Append-only by run id: a run that scrolls out of the feed's
@@ -322,7 +393,7 @@ def update_ledger(site, board_dir, sources_runs):
     entries.sort(key=lambda e: e.get("createdAt") or "", reverse=True)
     led_path.write_text(json.dumps(ledger, indent=1, ensure_ascii=False))
     _write_ledger_page(led_dir, board_dir, entries)
-    return added, len(entries)
+    return added, entries
 
 
 def main():
@@ -382,18 +453,8 @@ def main():
         print("ci-status: no CI data (gh unavailable?) — leaving board as-is")
         return 0
 
-    section = {
-        "kind": "console", "icon": "⚙️", "title": "CI — recent runs",
-        "href": f"/{board_dir}/runs/",
-        # Not "GitHub Actions runs" any more. MWServer's CI runs on the Forgejo
-        # instance, so a feed that names one forge while showing two describes
-        # itself wrongly on the surface whose whole job is to be trusted.
-        "desc": "latest CI runs, every forge — the title links to the full ledger",
-        "count": f"{len(lines)} runs",
-        "lines": lines,
-    }
     board = lib.load_board(board_path)
-    lib.upsert_section(board, "CI — recent runs", section, after_kind="compare")
+    rename_legacy_runs_section(board)
     # Wire each repo's build tiles to that repo's TRUNK state.
     #
     # Scoped per column on purpose. This used to set the first "CI build" tile
@@ -419,11 +480,24 @@ def main():
         runs = lib.apply_self_run(repo, runs, self_run)
         ledger_sources.append((repo, label, logo, runs))
         apply_tiles(board, label, runs, trunks)
-    lib.save_board(board_path, board)
+
+    # The ledger is written first because the console below is now rendered
+    # FROM it. The section used to show a sliding window of the last few runs
+    # per repo, so a day's builds could scroll out of it and read as never
+    # having happened, with the whole record one click away on another page.
+    # It now carries the record and scrolls, which is the same information in
+    # the same space.
+    entries = []
     if ledger_sources:
-        added, total = update_ledger(lib.site_dir(cfg), board_dir, ledger_sources)
-        print(f"ci-status: ledger +{added}, {total} runs on record")
-    print(f"ci-status: {len(lines)} runs, latest {lines[0]['text']} = {lines[0]['status']}")
+        added, entries = update_ledger(lib.site_dir(cfg), board_dir, ledger_sources)
+        print(f"ci-status: ledger +{added}, {len(entries)} runs on record")
+
+    lib.upsert_section(board, RUNS_TITLE, _runs_section(board_dir, entries, lines),
+                       after_kind="compare")
+    lib.save_board(board_path, board)
+    runs_shown = entries[:LEDGER_MAX] if entries else lines
+    print(f"ci-status: {len(runs_shown)} runs, "
+          f"latest {lines[0]['text']} = {lines[0]['status']}")
     return 0
 
 

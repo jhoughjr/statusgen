@@ -252,11 +252,14 @@ class ConsoleLinesTest(unittest.TestCase):
 
 
 class ForgeAttributionTest(unittest.TestCase):
-    """Which forge served a run, read from the run's own URL.
+    """Where a run ran, outside in: the forge, then the box.
+
+    Every forge is named, GitHub included, so a bare row never has to be read
+    as either "GitHub" or "unreadable".
 
     GitHub names the box through its jobs route. Forgejo has no equivalent: no
     run or task definition in its swagger carries a runner field, and the route
-    GitHub answers is 404 there. So a forge row says which forge, and never
+    GitHub answers is 404 there. So a forge row stops at the forge, and never
     claims to know which machine.
     """
 
@@ -270,13 +273,15 @@ class ForgeAttributionTest(unittest.TestCase):
     def tearDown(self):
         lib.gh_runs, lib.gh_run_runner = self._real_runs, self._real_runner
 
-    def test_github_is_not_named_because_it_is_the_assumed_case(self):
-        self.assertIsNone(lib.run_forge(RUN["url"]))
+    def test_github_is_named_like_any_other_forge(self):
+        self.assertEqual(lib.run_forge(RUN["url"]), "github")
 
     def test_a_forge_host_gives_its_short_name(self):
         self.assertEqual(lib.run_forge(self.FORGE_RUN["url"]), "forgejo")
 
     def test_a_missing_url_names_nothing_rather_than_raising(self):
+        # Distinct from GitHub on purpose. No URL means the forge is unknown,
+        # and reporting a guess there would be the one unrecoverable answer.
         for bad in ("", None, "not a url"):
             with self.subTest(url=bad):
                 self.assertIsNone(lib.run_forge(bad))
@@ -295,20 +300,31 @@ class ForgeAttributionTest(unittest.TestCase):
             AssertionError("asked GitHub about a forge run"))
         lib.console_lines([("jimmy/MWServer-Mirror", "MWServer", 4)])
 
-    def test_a_github_run_still_names_the_box(self):
+    def test_a_github_run_names_the_forge_then_the_box(self):
+        """Phoenix is the case that needs both. GitHub orchestrates it and it
+        executes on the mini, which is hardware in this house, so a row naming
+        only one of the two would be read as naming the other."""
         lib.gh_runs = lambda repo, limit: [dict(RUN)]
         lib.gh_run_runner = lambda repo, run_id: "mini"
         line = lib.console_lines([("o/r", "Repo", 4)])[0]
-        self.assertIn("· mini", line["meta"])
-        self.assertNotIn("on ", line["meta"])
+        self.assertEqual(line["meta"], "· push · on github · mini")
 
     def test_an_unassigned_github_run_names_no_box(self):
-        # A job that never reached a runner is the signal, so nothing is added
-        # rather than a placeholder that reads like a machine.
+        # A job that never reached a runner is the signal, so the box is left
+        # off rather than filled with a placeholder that reads like a machine.
+        # The forge still lands, because that part is known either way.
         lib.gh_runs = lambda repo, limit: [dict(RUN)]
         lib.gh_run_runner = lambda repo, run_id: None
         line = lib.console_lines([("o/r", "Repo", 4)])[0]
-        self.assertEqual(line["meta"], "· push")
+        self.assertEqual(line["meta"], "· push · on github")
+
+    def test_a_run_with_no_url_names_no_forge(self):
+        run = dict(RUN)
+        del run["url"]
+        lib.gh_runs = lambda repo, limit: [run]
+        lib.gh_run_runner = lambda repo, run_id: "mini"
+        line = lib.console_lines([("o/r", "Repo", 4)])[0]
+        self.assertEqual(line["meta"], "· push · mini")
 
 
 if __name__ == "__main__":

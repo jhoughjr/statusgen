@@ -50,10 +50,11 @@ def main():
         "poll": {"url": poll_url, "intervalMs": interval * 1000},
     }
     board = lib.load_board(board_path)
-    # Place it just before the static "CI — recent runs" console section.
-    # upsert_section inserts after the first `after_kind` section; the recent-runs
+    # Place it just before the static "CI — runs" console section.
+    # upsert_section inserts after the first `after_kind` section; the runs
     # console is itself inserted after the compare block, so anchoring on
-    # "compare" lands this live section immediately above it.
+    # "compare" lands this live section immediately above it. The anchor is the
+    # KIND, not that title, so renaming the runs console cannot move this one.
     lib.upsert_section(board, "CI — running now", section, after_kind="compare")
     lib.save_board(board_path, board)
     print(f"ci-live: live-console → {poll_url} (fallback every {interval}s)")

@@ -154,6 +154,7 @@
     },
     "console": {
       "fields": {
+        "scroll": { "type": "num" },
         "lines": { "type": "list", "required": true, "need": "hard",
           "item": { "fields": {
             "text": { "type": "str", "required": true, "need": "hard" },

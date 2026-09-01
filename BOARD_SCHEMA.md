@@ -192,7 +192,7 @@ All item fields optional except `q`.
 
 ### `console` — terminal-styled log lines (CI runs)
 ```json
-{ "kind": "console", "icon": "⚙️", "title": "CI — recent runs", "count": "8 runs",
+{ "kind": "console", "icon": "⚙️", "title": "CI — runs", "count": "144 runs", "scroll": 10,
   "lines": [ { "status": "success", "tone": "go", "text": "Phoenix · dev", "meta": "· push",
                "ts": "2026-07-13T19:03:04Z", "href": "https://github.com/…/runs/123",
                "cmd": "gh run watch -R owner/repo" } ] }
@@ -201,6 +201,12 @@ All item fields optional except `q`.
 `href` (optional) links the line text — e.g. straight to the Actions run. `cmd` (optional)
 renders a copy-to-clipboard chip after the text — e.g. the `gh run watch` line that follows
 each repo's runs.
+
+`scroll` (optional, a row count) caps the block at that many rows and scrolls the rest, so a
+console can carry a long record without pushing every section below it off the page. Omit it
+and the block renders at full height, which is what every console without one keeps doing.
+A console that scrolls should lead with its `cmd` chips rather than end with them: anything
+after the rows is below the fold and cannot be found.
 
 ### `split` — two columns of checklist items
 ```json

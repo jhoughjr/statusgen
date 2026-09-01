@@ -251,5 +251,65 @@ class ConsoleLinesTest(unittest.TestCase):
         self.assertGreaterEqual(seen["limit"], 30)
 
 
+class ForgeAttributionTest(unittest.TestCase):
+    """Which forge served a run, read from the run's own URL.
+
+    GitHub names the box through its jobs route. Forgejo has no equivalent: no
+    run or task definition in its swagger carries a runner field, and the route
+    GitHub answers is 404 there. So a forge row says which forge, and never
+    claims to know which machine.
+    """
+
+    FORGE_RUN = dict(RUN, event="workflow_dispatch",
+                     url="https://forgejo.jimmyhoughjr.net/jimmy/"
+                         "MWServer-Mirror/actions/runs/4")
+
+    def setUp(self):
+        self._real_runs, self._real_runner = lib.gh_runs, lib.gh_run_runner
+
+    def tearDown(self):
+        lib.gh_runs, lib.gh_run_runner = self._real_runs, self._real_runner
+
+    def test_github_is_not_named_because_it_is_the_assumed_case(self):
+        self.assertIsNone(lib.run_forge(RUN["url"]))
+
+    def test_a_forge_host_gives_its_short_name(self):
+        self.assertEqual(lib.run_forge(self.FORGE_RUN["url"]), "forgejo")
+
+    def test_a_missing_url_names_nothing_rather_than_raising(self):
+        for bad in ("", None, "not a url"):
+            with self.subTest(url=bad):
+                self.assertIsNone(lib.run_forge(bad))
+
+    def test_a_forge_run_says_which_forge(self):
+        lib.gh_runs = lambda repo, limit: [dict(self.FORGE_RUN)]
+        line = lib.console_lines([("jimmy/MWServer-Mirror", "MWServer", 4)])[0]
+        self.assertIn("· on forgejo", line["meta"])
+        self.assertIn("workflow_dispatch", line["meta"])
+
+    def test_a_forge_run_never_asks_github_who_ran_it(self):
+        """The repo path exists only on the forge, so the call is doomed before
+        it is made. It cost a round trip per forge row and returned nothing."""
+        lib.gh_runs = lambda repo, limit: [dict(self.FORGE_RUN)]
+        lib.gh_run_runner = lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("asked GitHub about a forge run"))
+        lib.console_lines([("jimmy/MWServer-Mirror", "MWServer", 4)])
+
+    def test_a_github_run_still_names_the_box(self):
+        lib.gh_runs = lambda repo, limit: [dict(RUN)]
+        lib.gh_run_runner = lambda repo, run_id: "mini"
+        line = lib.console_lines([("o/r", "Repo", 4)])[0]
+        self.assertIn("· mini", line["meta"])
+        self.assertNotIn("on ", line["meta"])
+
+    def test_an_unassigned_github_run_names_no_box(self):
+        # A job that never reached a runner is the signal, so nothing is added
+        # rather than a placeholder that reads like a machine.
+        lib.gh_runs = lambda repo, limit: [dict(RUN)]
+        lib.gh_run_runner = lambda repo, run_id: None
+        line = lib.console_lines([("o/r", "Repo", 4)])[0]
+        self.assertEqual(line["meta"], "· push")
+
+
 if __name__ == "__main__":
     unittest.main()

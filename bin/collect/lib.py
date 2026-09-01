@@ -12,6 +12,7 @@ import re
 import subprocess
 import pathlib
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ROOSTRC = os.path.expanduser("~/.roostrc")
@@ -768,6 +769,23 @@ def gh_run_runner(repo, run_id):
     return short
 
 
+def run_forge(url):
+    """Short name of the forge that served a run, or None when it is GitHub.
+
+    Read from the run's own URL, so it costs no call and works on every run
+    already on record rather than only on the ones fetched from now on.
+
+    GitHub returns None because it is the assumed case: naming it on every row
+    would put a word on the feed that carries no information. A row that names
+    a forge is saying "not the default one", which is the whole point.
+    """
+    host = urllib.parse.urlparse(url or "").netloc
+    host = host.split("@")[-1].split(":")[0].lower()
+    if not host or host == "github.com" or host.endswith(".github.com"):
+        return None
+    return host.split(".")[0]
+
+
 def newer_run_exists(run, runs):
     """A newer run on the same branch and workflow is the only evidence that this run was superseded,
     and it must have started while this run was still in progress - that is what cancel-in-progress does.
@@ -851,9 +869,20 @@ def console_lines(sources, self_run=None, fetched=None):
             # Which box ran it. Absent means the job never reached a runner —
             # which is exactly what a GitHub-side assignment failure looks like,
             # and is worth being able to see rather than infer.
-            runner = gh_run_runner(repo, r.get("databaseId"))
-            if runner:
-                line["meta"] = f"{line.get('meta', '')} · {runner}".strip()
+            #
+            # Only GitHub answers that question. Forgejo records no runner on a
+            # run: no run or task definition in its whole swagger carries one,
+            # and the jobs route that `gh_run_runner` reads is 404 there. So a
+            # forge row names the forge, which is knowable, and never a box,
+            # which is not. Asking `gh` anyway would spend a doomed round trip
+            # per row on a repo path that exists only on the forge.
+            forge = run_forge(r.get("url"))
+            if forge:
+                line["meta"] = f"{line.get('meta', '')} · on {forge}".strip()
+            else:
+                runner = gh_run_runner(repo, r.get("databaseId"))
+                if runner:
+                    line["meta"] = f"{line.get('meta', '')} · {runner}".strip()
             ts = r.get("createdAt", "")
             if ts:
                 line["ts"] = ts

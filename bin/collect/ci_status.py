@@ -369,7 +369,10 @@ def main():
     section = {
         "kind": "console", "icon": "⚙️", "title": "CI — recent runs",
         "href": f"/{board_dir}/runs/",
-        "desc": "latest GitHub Actions runs — the title links to the full ledger",
+        # Not "GitHub Actions runs" any more. MWServer's CI runs on the Forgejo
+        # instance, so a feed that names one forge while showing two describes
+        # itself wrongly on the surface whose whole job is to be trusted.
+        "desc": "latest CI runs, every forge — the title links to the full ledger",
         "count": f"{len(lines)} runs",
         "lines": lines,
     }

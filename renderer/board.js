@@ -297,6 +297,10 @@
     if (item.stale) n.append(el("span", { class: "stale-flag", "aria-label": "stale" }, " ⚠"));
     stat.append(n);
     stat.append(el("div", { class: "l" }, item.label ?? ""));
+    // `where` names the place the headline was measured — the forge a build
+    // ran on. Two tiles side by side can come from two different CI systems,
+    // and unmarked they read as one system's two branches.
+    const where = item.where ? String(item.where) : "";
     if (item.meta) {
       stat.append(el("div", { class: "m" }, String(item.meta)));
       // The age gets its own line under the provenance rather than riding on the
@@ -304,7 +308,14 @@
       // narrow tile the ellipsis ate the age first — and the age is the fact a
       // build tile is read for. A SHA is a fixed seven characters and fits; the
       // pair did not.
-      if (age) stat.append(el("div", { class: "m age" }, age));
+      //
+      // `where` shares that line, after the age, for the same reason it exists:
+      // the line truncates from the right, so a tile too narrow for both loses
+      // the place and keeps the age.
+      const tail = [age, where].filter(Boolean).join(" · ");
+      if (tail) stat.append(el("div", { class: "m age" }, tail));
+    } else if (where) {
+      stat.append(el("div", { class: "m" }, where));
     }
     return stat;
   }

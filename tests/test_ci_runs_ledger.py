@@ -111,6 +111,63 @@ class RunLedger(unittest.TestCase):
         self.assertNotIn("superseded", cancelled_line.get("meta", ""))
 
 
+class ASourceRestampsItsOwnRuns(unittest.TestCase):
+    """A config fix has to reach runs already on record.
+
+    The ledger dedupes by run id, so a run recorded under an older source spec
+    keeps that spec's presentation for good unless something re-stamps it.
+
+    MWServer is why this exists. Moving it to the forge rewrote its source
+    line, the new line was written without the `:swift` stack mark, and every
+    run collected after that lost the logo the rest of its history carries.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.site = pathlib.Path(self.tmp.name)
+        (self.site / "clauffice").mkdir()
+
+    def _entries(self):
+        return json.loads(
+            (self.site / "clauffice/runs/ledger.json").read_text())["runs"]
+
+    def test_a_restored_stack_mark_reaches_runs_already_recorded(self):
+        ci_status.update_ledger(self.site, "clauffice",
+                                [("o/r", "MWServer", None, [run(1)])])
+        self.assertNotIn("logo", self._entries()[0])
+        ci_status.update_ledger(self.site, "clauffice",
+                                [("o/r", "MWServer", "swift", [run(1)])])
+        self.assertEqual(self._entries()[0]["logo"], "swift")
+
+    def test_a_dropped_stack_mark_is_cleared_rather_than_left(self):
+        # Symmetric on purpose: the config is the say over presentation, so a
+        # mark removed there must not survive in the record.
+        ci_status.update_ledger(self.site, "clauffice",
+                                [("o/r", "R", "swift", [run(1)])])
+        ci_status.update_ledger(self.site, "clauffice",
+                                [("o/r", "R", None, [run(1)])])
+        self.assertNotIn("logo", self._entries()[0])
+
+    def test_a_relabelled_source_renames_its_history(self):
+        ci_status.update_ledger(self.site, "clauffice",
+                                [("o/r", "Old", None, [run(1)])])
+        ci_status.update_ledger(self.site, "clauffice",
+                                [("o/r", "New", None, [run(2)])])
+        self.assertEqual({e["label"] for e in self._entries()}, {"New"})
+
+    def test_another_repos_runs_are_left_alone(self):
+        """The old GitHub MWServer entries are a different repo from the forge
+        mirror, and re-stamping one must not reach into the other."""
+        ci_status.update_ledger(self.site, "clauffice",
+                                [("o/one", "One", "swift", [run(1)])])
+        ci_status.update_ledger(self.site, "clauffice",
+                                [("o/two", "Two", None, [run(2)])])
+        by_repo = {e["repo"]: e for e in self._entries()}
+        self.assertEqual(by_repo["o/one"]["logo"], "swift")
+        self.assertNotIn("logo", by_repo["o/two"])
+
+
 class RunsConsoleCarriesTheRecord(unittest.TestCase):
     """The board's console is built from the ledger, not a sliding window.
 

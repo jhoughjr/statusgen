@@ -218,5 +218,53 @@ class FmtAge(unittest.TestCase):
         self.assertIsNone(lib.fmt_age(None, now=self.NOW))
 
 
+class TheBadgeSaysWhereItWasMeasured(unittest.TestCase):
+    """A ✓ that does not say where it came from asserts more than it knows.
+
+    MWServer is the case. Its dev is green on the Forgejo instance today and
+    its master is green on GitHub from a fortnight ago, and the two tiles sit
+    side by side in one column. Unmarked they read as one project's two
+    branches rather than as two pipelines, one of which nobody runs.
+    """
+
+    FORGE = [{"conclusion": "success", "headSha": "d66a1177e07",
+              "createdAt": "2026-09-01T16:38:09Z",
+              "url": "https://forgejo.jimmyhoughjr.net/jimmy/"
+                     "MWServer-Mirror/actions/runs/4"}]
+    HUB = [{"conclusion": "success", "headSha": "b9357e3aaaa",
+            "createdAt": "2026-08-19T20:54:47Z",
+            "url": "https://github.com/o/r/actions/runs/1"}]
+
+    def test_a_forge_verdict_says_the_forge(self):
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", self.FORGE, [])
+        self.assertEqual(tile(board, "CI build")["where"], "on forgejo")
+
+    def test_a_github_verdict_says_github(self):
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", self.HUB, [])
+        self.assertEqual(tile(board, "CI build")["where"], "on github")
+
+    def test_a_verdict_with_no_url_claims_no_place(self):
+        # Absent beats guessed. A place the collector could not read must not
+        # be filled in with the likely one.
+        board = board_with([])
+        run = dict(self.FORGE[0])
+        del run["url"]
+        ci_status.apply_tiles(board, "Phoenix", [run], [])
+        self.assertNotIn("where", tile(board, "CI build"))
+
+    def test_a_trunk_that_moves_forge_does_not_keep_the_old_place(self):
+        """The clearing case, and the reason `where` goes through the same
+        None-clears path as the rest. A tile that kept the place from the run
+        before would name the forge it used to be measured on beside a verdict
+        from the new one."""
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", self.HUB, [])
+        self.assertEqual(tile(board, "CI build")["where"], "on github")
+        ci_status.apply_tiles(board, "Phoenix", self.FORGE, [])
+        self.assertEqual(tile(board, "CI build")["where"], "on forgejo")
+
+
 if __name__ == "__main__":
     unittest.main()

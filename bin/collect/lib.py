@@ -230,7 +230,7 @@ def set_compare_tile(board, match, n, label=None, tone=None, column=None):
 
 
 def upsert_compare_tile(board, column, label, n, tone=None, href=None,
-                        match=None, since=None, meta=None):
+                        match=None, since=None, meta=None, where=None):
     """Create-or-update a tile in the compare column whose title contains
     `column`. Matches an existing tile by `match` (default: `label`) as a
     prefix, so a collector can rename its own tile without orphaning the old
@@ -263,8 +263,12 @@ def upsert_compare_tile(board, column, label, n, tone=None, href=None,
         # tile that states the headline, not on a tile of its own beside it,
         # because two tiles can drift apart and a reader has no way to tell
         # which one to believe.
+        # `where` names the forge the verdict was measured on. Two tiles side by
+        # side can now come from different CI systems, and without it a reader
+        # cannot tell today's in-house green from a green left behind by a
+        # pipeline nobody runs any more.
         for key, val in (("tone", tone), ("href", href), ("since", since),
-                         ("meta", meta)):
+                         ("meta", meta), ("where", where)):
             if val is None:
                 tile.pop(key, None)
             else:

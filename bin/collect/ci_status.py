@@ -184,9 +184,19 @@ def _build_tile(board, label, branch, pool, primary):
         # renderer the timestamp and let it compute the age at render time,
         # where it can decay honestly.
         since = green.get("createdAt")
+    # Where the verdict was measured, read off the run the headline states.
+    #
+    # Two build tiles in one column can now come from two different CI systems.
+    # MWServer's dev is green on the Forgejo instance today and its master is
+    # green on GitHub from a fortnight ago, and unmarked they read as one
+    # project's two branches rather than as two pipelines, one of which nobody
+    # runs. A ✓ that does not say where it came from is the badge asserting more
+    # than it knows.
+    forge = lib.run_forge(latest.get("url"))
+    where = f"on {forge}" if forge else None
     lib.upsert_compare_tile(board, label, name, "✓" if ok else "✗",
                             tone="go" if ok else "you", href=latest.get("url"),
-                            match=match, meta=meta, since=since)
+                            match=match, meta=meta, since=since, where=where)
 
 
 def apply_tiles(board, label, runs, trunks):
@@ -371,6 +381,22 @@ def update_ledger(site, board_dir, sources_runs):
     seen = {e.get("id") for e in entries}
     added = 0
     for repo, label, logo, runs in sources_runs:
+        # Re-stamp what the source, not the run, decides: its label and its
+        # stack mark. The ledger dedupes by run id, so a run recorded under an
+        # older spec would otherwise keep that spec's presentation for good.
+        #
+        # MWServer is why. Moving it to the forge rewrote its source line, the
+        # new one was written without the `:swift` mark, and every run collected
+        # after that lost the stack logo the rest of its history carries. A
+        # config fix has to reach the record, or the gap stays visible forever.
+        for entry in entries:
+            if entry.get("repo") != repo:
+                continue
+            entry["label"] = label
+            if logo:
+                entry["logo"] = logo
+            else:
+                entry.pop("logo", None)
         for r in runs:
             if not r.get("conclusion"):
                 continue

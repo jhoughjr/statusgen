@@ -111,5 +111,66 @@ class RunLedger(unittest.TestCase):
         self.assertNotIn("superseded", cancelled_line.get("meta", ""))
 
 
+class LedgerSaysWhereItRan(unittest.TestCase):
+    """The ledger names the forge on every row it holds.
+
+    The forge is read from the entry's own URL, so it lands on runs recorded
+    long before this existed. That is the point: the ledger is the record of
+    what already happened, and a field it could only fill going forward would
+    leave most of it blank.
+    """
+
+    def _entry(self, **kw):
+        base = {"id": 81, "repo": "jimmy/MWServer-Mirror", "label": "MWServer",
+                "conclusion": "success", "headBranch": "dev",
+                "event": "workflow_dispatch",
+                "createdAt": "2026-09-01T16:38:09Z",
+                "url": "https://forgejo.jimmyhoughjr.net/jimmy/"
+                       "MWServer-Mirror/actions/runs/4"}
+        base.update(kw)
+        return base
+
+    def test_a_forge_run_names_the_forge(self):
+        line = ci_status._ledger_line(self._entry(), [])
+        self.assertEqual(line["meta"], "· workflow_dispatch · on forgejo")
+
+    def test_a_github_run_names_github(self):
+        entry = self._entry(repo="o/r", event="push", id=1,
+                            url="https://github.com/o/r/actions/runs/1")
+        line = ci_status._ledger_line(entry, [])
+        self.assertEqual(line["meta"], "· push · on github")
+
+    def test_an_old_entry_with_no_url_names_no_forge(self):
+        line = ci_status._ledger_line(self._entry(url=""), [])
+        self.assertEqual(line["meta"], "· workflow_dispatch")
+
+    def test_the_ledger_never_calls_the_api_for_a_box(self):
+        """Hundreds of rows, most old enough that GitHub has aged the jobs out.
+        Those answers are never persisted, so the calls would recur on every
+        collector run for as long as the ledger keeps growing."""
+        import lib
+        real = lib.sh
+        try:
+            lib.sh = lambda *a, **k: (_ for _ in ()).throw(
+                AssertionError("ledger called the API"))
+            ci_status._ledger_line(
+                self._entry(repo="o/r", id=999,
+                            url="https://github.com/o/r/actions/runs/999"), [])
+        finally:
+            lib.sh = real
+
+    def test_a_box_already_learned_by_the_feed_is_shown(self):
+        import lib
+        real_cache = lib._RUNNER_CACHE
+        try:
+            lib._RUNNER_CACHE = {("o/r", "42"): "mini"}
+            line = ci_status._ledger_line(
+                self._entry(repo="o/r", id=42, event="push",
+                            url="https://github.com/o/r/actions/runs/42"), [])
+            self.assertEqual(line["meta"], "· push · on github · mini")
+        finally:
+            lib._RUNNER_CACHE = real_cache
+
+
 if __name__ == "__main__":
     unittest.main()

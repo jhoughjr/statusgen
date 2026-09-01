@@ -738,7 +738,7 @@ def _runner_cache_save(cache):
         pass
 
 
-def gh_run_runner(repo, run_id):
+def gh_run_runner(repo, run_id, lookup=True):
     """Short name of the machine a run executed on — "mini", "macbook" — or
     None when it cannot be determined.
 
@@ -751,6 +751,13 @@ def gh_run_runner(repo, run_id):
     question asked about a build that behaved differently from its neighbour —
     and a job that never got assigned shows no runner at all, which is itself
     the answer.
+
+    `lookup=False` answers from the cache alone. The ledger holds every run ever
+    seen, and asking the API about all of them would spend hundreds of calls on
+    runs whose jobs GitHub has long since aged out. Those return nothing and are
+    never persisted, so the cost would recur on every collector run forever.
+    The feed pays the call for runs while they are recent, and the ledger reads
+    what the feed already learned.
     """
     if not run_id:
         return None
@@ -758,6 +765,8 @@ def gh_run_runner(repo, run_id):
     key = (repo, str(run_id))
     if key in cache:
         return cache[key]
+    if not lookup:
+        return None
     r = sh(["gh", "api", f"repos/{repo}/actions/runs/{run_id}/jobs",
             "-q", ".jobs[0].runner_name // empty"], timeout=20)
     name = r.stdout.strip() if r.returncode == 0 else ""

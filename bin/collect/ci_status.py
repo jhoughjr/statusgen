@@ -218,6 +218,22 @@ def _ledger_line(entry, repo_entries):
         line["meta"] = f"· superseded · {event}" if event else "· superseded"
     elif event:
         line["meta"] = f"· {event}"
+    # Where it ran, the same way the feed says it: the forge, then the box.
+    #
+    # The forge comes off the entry's own URL, so it lands on every run already
+    # on record rather than only on the ones collected from here on. The box is
+    # read from the cache alone: the ledger holds every run ever seen, and
+    # asking the API about all of them would spend hundreds of calls on runs
+    # whose jobs GitHub has aged out, every single collector run. The feed pays
+    # that call while a run is recent, and this reads what it learned.
+    forge = lib.run_forge(entry.get("url"))
+    if forge:
+        line["meta"] = f"{line.get('meta', '')} · on {forge}".strip()
+    if forge in ("github", None):
+        runner = lib.gh_run_runner(entry.get("repo", ""), entry.get("id"),
+                                   lookup=False)
+        if runner:
+            line["meta"] = f"{line.get('meta', '')} · {runner}".strip()
     if entry.get("createdAt"):
         line["ts"] = entry["createdAt"]
     if entry.get("url"):

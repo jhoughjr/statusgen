@@ -94,11 +94,13 @@ Each section is `{ "kind": "...", ... }`. Supported kinds:
 **A tile has three lines, and they answer three different questions.** `n` is the headline: the answer the reader came for. `label` says what the headline is an answer *about*. `meta` (optional) is the provenance line: the evidence the headline was read from, set small, faint and monospaced because it is the footnote, not the claim.
 
 ```json
-{ "n": "✓", "label": "CI build · dev", "meta": "132dab0",
+{ "n": "✓", "label": "CI build · dev", "meta": "132dab0", "where": "on forgejo",
   "since": "2026-08-20T19:05:29Z", "tone": "go", "href": "…/runs/32406777042" }
 ```
 
-Renders as **✓** / `CI build · dev` / `132dab0 · 4d ago`. Reach for `meta` when a number is only trustworthy if you know where it came from — a verdict and the commit it was measured at, a rate and its sample size. The alternative is a second tile beside the first, and two tiles can drift apart with no way for a reader to tell which one to believe.
+Renders as **✓** / `CI build · dev` / `132dab0` / `4d ago · on forgejo`. Reach for `meta` when a number is only trustworthy if you know where it came from — a verdict and the commit it was measured at, a rate and its sample size. The alternative is a second tile beside the first, and two tiles can drift apart with no way for a reader to tell which one to believe.
+
+**`where` (optional) names the place the headline was measured** — the forge a build ran on. Two tiles side by side can come from two different CI systems: a project mid-migration has one branch green in house and another green on a pipeline nobody runs any more, and unmarked they read as one system's two branches. It shares the age line, *after* the age, because that line truncates from the right and the age is the fact a build tile is read for.
 
 **`since` is a timestamp, never a rendered age.** The renderer computes "4d ago" when the page draws, so the age decays honestly while a board sits open on a wall. A collector that writes "4d ago" into `n` publishes a string that is true for as long as it takes to push the file and wrong forever after. The age attaches to whatever the tile names last: it joins `meta` when there is one, because the age dates the *commit*, not the tick beside it.
 

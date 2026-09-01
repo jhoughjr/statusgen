@@ -770,19 +770,22 @@ def gh_run_runner(repo, run_id):
 
 
 def run_forge(url):
-    """Short name of the forge that served a run, or None when it is GitHub.
+    """Short name of the forge that served a run, or None when the URL says.
 
     Read from the run's own URL, so it costs no call and works on every run
     already on record rather than only on the ones fetched from now on.
 
-    GitHub returns None because it is the assumed case: naming it on every row
-    would put a word on the feed that carries no information. A row that names
-    a forge is saying "not the default one", which is the whole point.
+    Every forge is named, GitHub included. Naming only the unusual one leaves
+    the reader to work out whether a bare row means GitHub or means the forge
+    could not be read, and those are different facts. While the work runs in
+    two places, saying which one is the point of the row.
     """
     host = urllib.parse.urlparse(url or "").netloc
     host = host.split("@")[-1].split(":")[0].lower()
-    if not host or host == "github.com" or host.endswith(".github.com"):
+    if not host:
         return None
+    if host == "github.com" or host.endswith(".github.com"):
+        return "github"
     return host.split(".")[0]
 
 
@@ -866,6 +869,17 @@ def console_lines(sources, self_run=None, fetched=None):
                 line["meta"] = f"· superseded · {event}" if event else "· superseded"
             elif event:
                 line["meta"] = f"· {event}"
+            # Where it ran, outside in: the forge that served it, then the box
+            # that executed it.
+            #
+            # `on` always introduces the forge, so the two never read as the
+            # same kind of fact. That matters most where they disagree: a
+            # Phoenix run is `on github · mini`, orchestrated by GitHub and
+            # executed on hardware in this house, and a row that named only one
+            # of the two would be misread as naming the other.
+            forge = run_forge(r.get("url"))
+            if forge:
+                line["meta"] = f"{line.get('meta', '')} · on {forge}".strip()
             # Which box ran it. Absent means the job never reached a runner —
             # which is exactly what a GitHub-side assignment failure looks like,
             # and is worth being able to see rather than infer.
@@ -873,13 +887,10 @@ def console_lines(sources, self_run=None, fetched=None):
             # Only GitHub answers that question. Forgejo records no runner on a
             # run: no run or task definition in its whole swagger carries one,
             # and the jobs route that `gh_run_runner` reads is 404 there. So a
-            # forge row names the forge, which is knowable, and never a box,
-            # which is not. Asking `gh` anyway would spend a doomed round trip
-            # per row on a repo path that exists only on the forge.
-            forge = run_forge(r.get("url"))
-            if forge:
-                line["meta"] = f"{line.get('meta', '')} · on {forge}".strip()
-            else:
+            # forge row stops at the forge rather than guessing a box. Asking
+            # `gh` anyway would spend a doomed round trip per row on a repo path
+            # that exists only on the forge.
+            if forge in ("github", None):
                 runner = gh_run_runner(repo, r.get("databaseId"))
                 if runner:
                     line["meta"] = f"{line.get('meta', '')} · {runner}".strip()

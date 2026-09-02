@@ -742,9 +742,33 @@ def _runner_cache_save(cache):
         pass
 
 
+# GitHub names a hosted runner after the disposable VM it spun up, so the name
+# is an id that is never seen again and identifies nothing a reader could act
+# on. "GitHub Actions 1000000814" also crowds out everything beside it on a
+# line that truncates.
+_HOSTED_RUNNER = "github actions"
+
+
+def short_runner_name(name):
+    """A runner name as a box a reader knows, or None when there is no name.
+
+    A self-hosted runner is named after the machine, and the shared prefix is
+    noise on every row: "jimmys-mac-mini" is "mini". A hosted runner has no
+    machine to name, so it reports what it actually is. That distinction is the
+    useful half anyway — "on github · mini" ran on hardware in this house and
+    "on github · hosted" did not, and the VM's id would have said neither.
+    """
+    name = (name or "").strip()
+    if not name:
+        return None
+    if name.lower().startswith(_HOSTED_RUNNER):
+        return "hosted"
+    return name.rsplit("-", 1)[-1]
+
+
 def gh_run_runner(repo, run_id, lookup=True):
-    """Short name of the machine a run executed on — "mini", "macbook" — or
-    None when it cannot be determined.
+    """Short name of the machine a run executed on — "mini", "macbook",
+    "hosted" — or None when it cannot be determined.
 
     `gh run list` does not carry this, and neither does `gh run view --json
     jobs`; only the REST jobs endpoint does. That is one extra call per row, so
@@ -768,14 +792,19 @@ def gh_run_runner(repo, run_id, lookup=True):
     cache = _runner_cache()
     key = (repo, str(run_id))
     if key in cache:
-        return cache[key]
+        # Normalised on the way out, not only on the way in. The cache is a
+        # file that outlives any one run of this code, so names written under
+        # an older rule would keep their old shape for as long as the entry
+        # lives — and a run's runner never changes, so nothing would ever
+        # refresh it. `short_runner_name` is idempotent, so this is a no-op for
+        # anything already in the current shape.
+        return short_runner_name(cache[key])
     if not lookup:
         return None
     r = sh(["gh", "api", f"repos/{repo}/actions/runs/{run_id}/jobs",
             "-q", ".jobs[0].runner_name // empty"], timeout=20)
     name = r.stdout.strip() if r.returncode == 0 else ""
-    # "jimmys-mac-mini" -> "mini"; the shared prefix is noise on every row.
-    short = name.rsplit("-", 1)[-1] if name else None
+    short = short_runner_name(name)
     cache[key] = short
     if short:
         _runner_cache_save(cache)

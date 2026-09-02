@@ -156,9 +156,9 @@ class ASourceRestampsItsOwnRuns(unittest.TestCase):
                                 [("o/r", "New", None, [run(2)])])
         self.assertEqual({e["label"] for e in self._entries()}, {"New"})
 
-    def test_another_repos_runs_are_left_alone(self):
-        """The old GitHub MWServer entries are a different repo from the forge
-        mirror, and re-stamping one must not reach into the other."""
+    def test_a_different_project_is_left_alone(self):
+        """Another project shares neither the repo nor the label, so nothing
+        about it is this source's to restate."""
         ci_status.update_ledger(self.site, "clauffice",
                                 [("o/one", "One", "swift", [run(1)])])
         ci_status.update_ledger(self.site, "clauffice",
@@ -166,6 +166,22 @@ class ASourceRestampsItsOwnRuns(unittest.TestCase):
         by_repo = {e["repo"]: e for e in self._entries()}
         self.assertEqual(by_repo["o/one"]["logo"], "swift")
         self.assertNotIn("logo", by_repo["o/two"])
+
+    def test_a_project_that_moved_forge_wears_one_mark_across_both_repos(self):
+        """MWServer's runs are split between the GitHub repo and the forge
+        mirror. They are one project on the board, so they wear one mark.
+        Matching the repo alone strands the half collected before the move: the
+        mirror's id never appears on those entries, so no later run reaches
+        them and the gap is permanent."""
+        ci_status.update_ledger(self.site, "clauffice",
+                                [("Austin-MacWorks/MWServer", "MWServer", None,
+                                  [run(1)])])
+        ci_status.update_ledger(self.site, "clauffice",
+                                [("jimmy/MWServer-Mirror", "MWServer", "swift",
+                                  [run(2)])])
+        marks = {e["repo"]: e.get("logo") for e in self._entries()}
+        self.assertEqual(marks, {"Austin-MacWorks/MWServer": "swift",
+                                 "jimmy/MWServer-Mirror": "swift"})
 
 
 class RunsConsoleCarriesTheRecord(unittest.TestCase):

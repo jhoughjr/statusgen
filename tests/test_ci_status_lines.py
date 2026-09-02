@@ -251,6 +251,54 @@ class ConsoleLinesTest(unittest.TestCase):
         self.assertGreaterEqual(seen["limit"], 30)
 
 
+class ShortRunnerNameTest(unittest.TestCase):
+    """A runner name has to name a box a reader knows, or say it is not one."""
+
+    def test_a_self_hosted_machine_loses_the_shared_prefix(self):
+        self.assertEqual(lib.short_runner_name("jimmys-mac-mini"), "mini")
+
+    def test_a_hosted_runner_reports_what_it_is_not_which_vm(self):
+        """GitHub names a hosted runner after the disposable VM it spun up.
+        "GitHub Actions 1000000814" identifies nothing a reader could act on,
+        is never seen again, and crowds out everything beside it on a line that
+        truncates. What matters is that it was not our hardware."""
+        for name in ("GitHub Actions 1000000814", "GitHub Actions 2",
+                     "github actions 7"):
+            with self.subTest(name=name):
+                self.assertEqual(lib.short_runner_name(name), "hosted")
+
+    def test_no_name_stays_none_rather_than_becoming_a_box(self):
+        # A job that never reached a runner shows no runner, and that absence
+        # is the signal. It must not turn into the word "hosted".
+        for absent in ("", "   ", None):
+            with self.subTest(name=absent):
+                self.assertIsNone(lib.short_runner_name(absent))
+
+    def test_a_plain_name_survives_unchanged(self):
+        self.assertEqual(lib.short_runner_name("opi"), "opi")
+
+    def test_normalising_twice_changes_nothing(self):
+        # Relied on where the cache is read: the same value passes through this
+        # on every collector run.
+        for name in ("jimmys-mac-mini", "GitHub Actions 3", "opi"):
+            with self.subTest(name=name):
+                once = lib.short_runner_name(name)
+                self.assertEqual(lib.short_runner_name(once), once)
+
+    def test_a_name_cached_under_the_old_rule_is_cleaned_on_read(self):
+        """The cache is a file that outlives the code that wrote it, and a
+        run's runner never changes, so nothing would ever refresh an entry
+        written before this rule existed."""
+        real_cache, real_sh = lib._RUNNER_CACHE, lib.sh
+        try:
+            lib._RUNNER_CACHE = {("o/r", "5"): "GitHub Actions 1000000814"}
+            lib.sh = lambda *a, **k: (_ for _ in ()).throw(
+                AssertionError("re-fetched a cached name"))
+            self.assertEqual(lib.gh_run_runner("o/r", 5), "hosted")
+        finally:
+            lib._RUNNER_CACHE, lib.sh = real_cache, real_sh
+
+
 class ForgeAttributionTest(unittest.TestCase):
     """Where a run ran, outside in: the forge, then the box.
 

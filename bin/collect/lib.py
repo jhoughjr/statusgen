@@ -749,12 +749,27 @@ def apply_self_run(repo, runs, self_run):
     return out
 
 
-# A run's runner never changes once assigned, so names persist across pushes.
-# Without the file, every push re-paid one REST call per feed row for runs that
-# finished days ago. Only real names persist: an empty answer can mean "still
+# Where a run executed: the box and the architecture, from one REST call.
+#
+# Neither changes once a run has finished, so both persist across pushes.
+# Without the file, every push re-paid one call per feed row for runs that
+# finished days ago. Only real answers persist: an empty one can mean "still
 # unassigned", so it stays process-local and is asked again next push.
-_RUNNER_CACHE_FILE = os.path.expanduser("~/.cache/statusgen/runner-names.json")
+#
+# The file is `run-facts` rather than the old `runner-names` because the value
+# went from a name to a record. A stale cache of bare strings is simply ignored
+# and rebuilt, which costs one pass of the feed and needs no migration.
+_RUNNER_CACHE_FILE = os.path.expanduser("~/.cache/statusgen/run-facts.json")
 _RUNNER_CACHE = None
+
+# Architecture words, mapped to the two this house builds for. GitHub states
+# the architecture on a self-hosted runner's labels and inside a matrix job's
+# name; both are read, because a run states it in whichever of the two the
+# workflow happened to use.
+_ARCH_WORDS = {
+    "arm64": "arm64", "aarch64": "arm64", "arm": "arm64",
+    "amd64": "amd64", "x64": "amd64", "x86_64": "amd64", "x86-64": "amd64",
+}
 
 
 def _runner_cache():
@@ -768,10 +783,23 @@ def _runner_cache():
     return _RUNNER_CACHE
 
 
+def _knows_something(value):
+    """True when a cache record is worth keeping on disk.
+
+    A record of all-None is a truthy dict, so filtering on the value alone
+    would persist "we asked and learned nothing" forever — and a run that is
+    merely still unassigned would then never be asked again.
+    """
+    if isinstance(value, dict):
+        return any(value.values())
+    return bool(value)
+
+
 def _runner_cache_save(cache):
     try:
         os.makedirs(os.path.dirname(_RUNNER_CACHE_FILE), exist_ok=True)
-        json.dump({"\x1f".join(k): v for k, v in cache.items() if v},
+        json.dump({"\x1f".join(k): v for k, v in cache.items()
+                   if _knows_something(v)},
                   open(_RUNNER_CACHE_FILE, "w"))
     except OSError:
         pass
@@ -801,49 +829,99 @@ def short_runner_name(name):
     return name.rsplit("-", 1)[-1]
 
 
-def gh_run_runner(repo, run_id, lookup=True):
-    """Short name of the machine a run executed on — "mini", "macbook",
-    "hosted" — or None when it cannot be determined.
+def jobs_arch(jobs):
+    """The architectures a run's jobs actually built for, as one label.
 
-    `gh run list` does not carry this, and neither does `gh run view --json
-    jobs`; only the REST jobs endpoint does. That is one extra call per row, so
-    results are cached for the life of the process (a collector run), and any
-    failure returns None rather than costing the whole feed.
+    Read only where the architecture is STATED — a runner label, or a matrix
+    job's name, which is where a `runs-on` matrix leaves it:
 
-    Worth the call: with two runners, "which box ran this" is the first
-    question asked about a build that behaved differently from its neighbour —
+        build_push (arm64, self-hosted, mwserver, linux/arm64, 120)
+        build_push (amd64, ubuntu-latest, linux/amd64, 90, ...)
+
+    Nothing is inferred from an image name. `ubuntu-latest` is x64 today and
+    GitHub has since added arm images under names that differ by a suffix, so a
+    table of them would be a guess with an expiry date on it. A run that does
+    not say returns None, and the row simply carries no architecture.
+
+    A run can span two of them, and MWServer's release is exactly that: arm64
+    on the box in this house and amd64 on a hosted runner, one run. Reporting
+    either alone would name half a build, so both are named, in a fixed order
+    so the label does not shuffle between pushes.
+    """
+    found = set()
+    for job in jobs or []:
+        words = list(job.get("labels") or [])
+        # The name is split on everything a matrix leaves between its values,
+        # so `linux/arm64` yields `arm64` and `(arm64,` yields `arm64`.
+        words += re.split(r"[^A-Za-z0-9_]+", str(job.get("name") or ""))
+        for word in words:
+            arch = _ARCH_WORDS.get(word.strip().lower())
+            if arch:
+                found.add(arch)
+    if not found:
+        return None
+    return "+".join(sorted(found))
+
+
+def _run_facts(repo, run_id, lookup=True):
+    """{"box": …, "arch": …} for a run — where it executed, in one REST call.
+
+    `gh run list` carries neither, and neither does `gh run view --json jobs`;
+    only the REST jobs endpoint does. That is one call per row, so answers are
+    cached to disk, and any failure returns empty rather than costing the feed.
+
+    Worth the call: with several runners, "which box ran this" is the first
+    question asked about a build that behaved differently from its neighbour,
     and a job that never got assigned shows no runner at all, which is itself
     the answer.
 
     `lookup=False` answers from the cache alone. The ledger holds every run ever
-    seen, and asking the API about all of them would spend hundreds of calls on
-    runs whose jobs GitHub has long since aged out. Those return nothing and are
+    seen, and asking about all of them would spend hundreds of calls on runs
+    whose jobs GitHub has long since aged out. Those return nothing and are
     never persisted, so the cost would recur on every collector run forever.
-    The feed pays the call for runs while they are recent, and the ledger reads
-    what the feed already learned.
+    The feed pays the call while a run is recent; the ledger reads what it
+    learned.
     """
     if not run_id:
-        return None
+        return {}
     cache = _runner_cache()
     key = (repo, str(run_id))
     if key in cache:
-        # Normalised on the way out, not only on the way in. The cache is a
-        # file that outlives any one run of this code, so names written under
-        # an older rule would keep their old shape for as long as the entry
-        # lives — and a run's runner never changes, so nothing would ever
-        # refresh it. `short_runner_name` is idempotent, so this is a no-op for
-        # anything already in the current shape.
-        return short_runner_name(cache[key])
+        cached = cache[key]
+        # A cache written before this held a bare name. Read it as the box it
+        # was, rather than discarding a fact already paid for.
+        if isinstance(cached, str):
+            return {"box": short_runner_name(cached), "arch": None}
+        return dict(cached or {})
     if not lookup:
-        return None
+        return {}
     r = sh(["gh", "api", f"repos/{repo}/actions/runs/{run_id}/jobs",
-            "-q", ".jobs[0].runner_name // empty"], timeout=20)
-    name = r.stdout.strip() if r.returncode == 0 else ""
-    short = short_runner_name(name)
-    cache[key] = short
-    if short:
+            "-q", "[.jobs[] | {name, runner_name, labels}]"], timeout=20)
+    try:
+        jobs = json.loads(r.stdout) if r.returncode == 0 else []
+    except ValueError:
+        jobs = []
+    # The box is the first job that reached a runner. A run whose jobs landed on
+    # several boxes cannot be named by one of them, and the architecture below
+    # is the honest way that shows up on the row.
+    box = next((short_runner_name(j.get("runner_name")) for j in jobs
+                if j.get("runner_name")), None)
+    facts = {"box": box, "arch": jobs_arch(jobs)}
+    cache[key] = facts
+    if box or facts["arch"]:
         _runner_cache_save(cache)
-    return short
+    return facts
+
+
+def gh_run_runner(repo, run_id, lookup=True):
+    """Short name of the machine a run executed on — "mini", "hosted" — or None."""
+    return _run_facts(repo, run_id, lookup).get("box")
+
+
+def gh_run_arch(repo, run_id, lookup=True):
+    """The architecture a run built for — "arm64", "amd64", "arm64+amd64" — or
+    None when the run does not say."""
+    return _run_facts(repo, run_id, lookup).get("arch")
 
 
 def run_forge(url):
@@ -968,9 +1046,19 @@ def console_lines(sources, self_run=None, fetched=None):
             # `gh` anyway would spend a doomed round trip per row on a repo path
             # that exists only on the forge.
             if forge in ("github", None):
-                runner = gh_run_runner(repo, r.get("databaseId"))
-                if runner:
-                    line["meta"] = f"{line.get('meta', '')} · {runner}".strip()
+                # Box then architecture: the machine, then what it built for.
+                # A release run states two architectures and one of them is not
+                # the box's own, so the pair answers "where did this run" in a
+                # way neither half does alone.
+                #
+                # Two calls, one fetch: both read the same cached record, so the
+                # second is free. Kept as the two public functions rather than
+                # the record itself, so each stays independently replaceable.
+                run_id = r.get("databaseId")
+                for fact in (gh_run_runner(repo, run_id),
+                             gh_run_arch(repo, run_id)):
+                    if fact:
+                        line["meta"] = f"{line.get('meta', '')} · {fact}".strip()
             ts = r.get("createdAt", "")
             if ts:
                 line["ts"] = ts

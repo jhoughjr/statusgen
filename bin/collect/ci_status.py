@@ -254,10 +254,14 @@ def _ledger_line(entry, repo_entries):
     if forge:
         line["meta"] = f"{line.get('meta', '')} · on {forge}".strip()
     if forge in ("github", None):
-        runner = lib.gh_run_runner(entry.get("repo", ""), entry.get("id"),
-                                   lookup=False)
-        if runner:
-            line["meta"] = f"{line.get('meta', '')} · {runner}".strip()
+        repo, run_id = entry.get("repo", ""), entry.get("id")
+        # Box then architecture, the same order and wording the feed uses. The
+        # two surfaces describe one run, so they must not describe it
+        # differently.
+        for fact in (lib.gh_run_runner(repo, run_id, lookup=False),
+                     lib.gh_run_arch(repo, run_id, lookup=False)):
+            if fact:
+                line["meta"] = f"{line.get('meta', '')} · {fact}".strip()
     if entry.get("createdAt"):
         line["ts"] = entry["createdAt"]
     if entry.get("url"):

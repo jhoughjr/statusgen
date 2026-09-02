@@ -234,6 +234,36 @@ def _build_tile(board, label, branch, pool, primary):
                             match=match, meta=meta, since=since, where=where)
 
 
+def _reach_quiet_trunks(repo, runs, trunks, from_forge=False):
+    """Extra runs for declared trunks the window did not reach.
+
+    The window is the repo's newest runs across every workflow, so a trunk that
+    builds rarely falls out of it while noisier things stay in. MWServer's
+    master last built on 2026-08-19 and the repo has run a bot workflow on
+    issue comments many times since, so master was nowhere in the newest forty
+    and its tile could not be written at all.
+
+    One targeted fetch per missing trunk, and only for a trunk that has none —
+    a busy trunk costs nothing. `gh run list --branch` narrows server-side, so
+    this reaches back as far as the branch's own history rather than paging the
+    repo's.
+
+    Forge sources are skipped: the fetch is a `gh` call against a repo path
+    that exists only on the forge, so it could only ever fail.
+    """
+    if from_forge:
+        return []
+    seen = {r.get("headBranch") for r in runs}
+    extra = []
+    for branch in trunks:
+        if branch in seen:
+            continue
+        found = lib.gh_run_history(repo, limit=10, branch=branch)
+        if found:
+            extra += found
+    return extra
+
+
 def apply_tiles(board, label, runs, trunks, column_trunks=None):
     """One SOURCE's tile pass: every trunk with settled runs gets its build
     tile, the preferred one under the plain-renamed name, the rest
@@ -604,7 +634,11 @@ def main():
         ledger_sources.append((repo, label, logo, runs))
         # Per source: one project's trunks can come from two forges, and two
         # projects on one board do not share a trunk set either way.
-        apply_tiles(board, label, runs, parse_trunks(cfg, label, repo),
+        source_trunks = parse_trunks(cfg, label, repo)
+        apply_tiles(board, label,
+                    runs + _reach_quiet_trunks(repo, runs, source_trunks,
+                                               from_forge=repo in forge_repos),
+                    source_trunks,
                     column_trunks=column_trunks.get(label))
 
     # The ledger is written first because the console below is now rendered

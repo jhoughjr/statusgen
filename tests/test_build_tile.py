@@ -234,6 +234,39 @@ class ARepoDeclaresItsOwnTrunks(unittest.TestCase):
                  "url": f"https://github.com/o/r/actions/runs/{b}"}
                 for b in branches]
 
+    def test_a_quiet_trunk_is_fetched_when_the_window_misses_it(self):
+        """MWServer's master last built on 2026-08-19, and a bot workflow has
+        run on issue comments many times since, so master was nowhere in the
+        repo's newest forty and its tile could not be written at all."""
+        real = lib.gh_run_history
+        try:
+            asked = []
+
+            def history(repo, limit=20, branch=None, **kw):
+                asked.append(branch)
+                return self._runs(branch) if branch == "master" else []
+
+            lib.gh_run_history = history
+            extra = ci_status._reach_quiet_trunks(
+                "o/r", self._runs("dev"), ["dev", "master"])
+            self.assertEqual(asked, ["master"], "asked about a trunk it had")
+            self.assertEqual([r["headBranch"] for r in extra], ["master"])
+        finally:
+            lib.gh_run_history = real
+
+    def test_a_forge_source_is_never_asked_through_gh(self):
+        # The repo path exists only on the forge, so the call could only fail.
+        real = lib.gh_run_history
+        try:
+            lib.gh_run_history = lambda *a, **k: (_ for _ in ()).throw(
+                AssertionError("asked GitHub about a forge repo"))
+            self.assertEqual(
+                ci_status._reach_quiet_trunks("jimmy/M", self._runs("dev"),
+                                              ["dev", "master"],
+                                              from_forge=True), [])
+        finally:
+            lib.gh_run_history = real
+
     def test_a_source_key_beats_the_label_key(self):
         """One project's trunks can come from two forges. MWServer builds dev
         on the mirror and master on GitHub, and both write into one column

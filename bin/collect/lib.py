@@ -760,6 +760,11 @@ def apply_self_run(repo, runs, self_run):
 # went from a name to a record. A stale cache of bare strings is simply ignored
 # and rebuilt, which costs one pass of the feed and needs no migration.
 _RUNNER_CACHE_FILE = os.path.expanduser("~/.cache/statusgen/run-facts.json")
+# The box-only file this replaced. Read once to seed the new one, then never
+# written again; it is left on disk rather than deleted, since a cache is not
+# ours to remove and it costs a few kilobytes.
+_LEGACY_RUNNER_CACHE_FILE = os.path.expanduser(
+    "~/.cache/statusgen/runner-names.json")
 _RUNNER_CACHE = None
 
 # Architecture words, mapped to the two this house builds for. GitHub states
@@ -772,14 +777,31 @@ _ARCH_WORDS = {
 }
 
 
+def _read_cache_file(path):
+    try:
+        return {tuple(k.split("\x1f", 1)): v
+                for k, v in json.load(open(path)).items()}
+    except (OSError, ValueError):
+        return {}
+
+
 def _runner_cache():
+    """The run-facts cache, seeded from the box-only file it replaced.
+
+    The box names in that older file were each paid for with a REST call, and
+    the ledger never re-asks: it reads the cache alone, because asking about
+    every run ever recorded would spend hundreds of calls on runs whose jobs
+    GitHub has aged out. So a name dropped here is a row that loses its box for
+    good — the run will never pass through the feed again to earn it back.
+
+    Seeded rather than merged over: anything the new file already knows wins,
+    because it carries the architecture too.
+    """
     global _RUNNER_CACHE
     if _RUNNER_CACHE is None:
-        try:
-            _RUNNER_CACHE = {tuple(k.split("\x1f", 1)): v
-                             for k, v in json.load(open(_RUNNER_CACHE_FILE)).items()}
-        except (OSError, ValueError):
-            _RUNNER_CACHE = {}
+        cache = _read_cache_file(_LEGACY_RUNNER_CACHE_FILE)
+        cache.update(_read_cache_file(_RUNNER_CACHE_FILE))
+        _RUNNER_CACHE = cache
     return _RUNNER_CACHE
 
 

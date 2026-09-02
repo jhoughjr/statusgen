@@ -185,17 +185,16 @@ def apply_source(board, source):
     # pipeline's.
     where = _measured_on(done)
 
-    # Build time comes from the newest run that actually built — a failed run's
-    # clock is however far it got before dying, which is not a build time.
-    newest_ok = next((r for r in done if r.get("conclusion") == "success"), None)
-    if newest_ok is not None:
-        secs = lib.run_duration(newest_ok)
-        if secs is not None:
-            lib.upsert_compare_tile(
-                board, source["column"], "Build time",
-                lib.fmt_duration(secs), tone="none",
-                href=newest_ok.get("url"),
-                where=_measured_on([newest_ok]))
+    # The Build time TILE has moved to the build badge, which ci_status writes
+    # from the run it already reports. This collector fetched its own, and the
+    # two could describe different pipelines: MWServer's badge read green from
+    # the Forgejo mirror while the tile beside it read 36m32s from a GitHub run
+    # of 2026-08-26, on a pipeline nobody runs. A cost belongs to a build, so it
+    # belongs on the tile that names that build.
+    #
+    # The trend chart below stays here. It is a shape over many runs rather than
+    # one number about one run, and it is this collector's whole reason to
+    # exist.
 
     passed = sum(1 for r in done if r.get("conclusion") == "success")
     # Amber below two-thirds: a pipeline red a third of the time is not a gate
@@ -209,11 +208,15 @@ def apply_source(board, source):
         lib.upsert_section(board, chart["title"], chart, after_kind="compare")
 
     newest = done[0]
+    # The log line still names a build time, because it is useful when reading
+    # a run by eye. It is this collector's own measurement of its own branch —
+    # no longer a tile, so it cannot sit on the board disagreeing with the badge.
+    newest_ok = next((r for r in done if r.get("conclusion") == "success"), None)
+    secs = lib.run_duration(newest_ok) if newest_ok is not None else None
     return (f"{source['column']}: {passed}/{len(done)} green on "
             f"{source['branch']}, latest {newest.get('conclusion')} "
             f"@{short_sha(newest)}"
-            + (f", {lib.fmt_duration(lib.run_duration(newest_ok))} build"
-               if newest_ok is not None and lib.run_duration(newest_ok) else ""))
+            + (f", {lib.fmt_duration(secs)} build" if secs else ""))
 
 
 def main():

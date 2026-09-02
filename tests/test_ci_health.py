@@ -98,32 +98,31 @@ class ApplySourceTest(unittest.TestCase):
     def feed(self, runs):
         lib.gh_run_history = lambda repo, **kw: runs
 
-    def test_writes_build_time_and_green_rate_into_its_own_column(self):
+    def test_writes_the_green_rate_into_its_own_column(self):
         self.feed([run(), run(), run("failure")])
         b = board()
         self.assertIsNotNone(ci_health.apply_source(b, SOURCE))
-        t = tiles(b)
-        self.assertEqual(t["Build time"]["n"], "5m36s")
-        self.assertEqual(t["Build green"]["n"], "2/3")
+        self.assertEqual(tiles(b)["Build green"]["n"], "2/3")
         # The client column is untouched.
         self.assertEqual(list(tiles(b, 0)), ["Tests green"])
 
-    def test_build_time_comes_from_the_newest_run_that_actually_built(self):
-        # Newest run failed after 1 minute; the build time is the last SUCCESS,
-        # not "1m" — a failure's clock is how far it got, not how long it takes.
-        failed = run("failure", started="2026-07-26T06:00:00Z",
-                     ended="2026-07-26T06:01:00Z")
-        self.feed([failed, run()])
+    def test_it_no_longer_writes_a_build_time_tile(self):
+        """The cost moved onto the build badge, which ci_status writes from the
+        run it already reports. Two collectors fetching their own runs could
+        describe different pipelines: MWServer's badge read green from the
+        Forgejo mirror while the tile beside it read 36m32s from a GitHub run
+        of 2026-08-26, on a pipeline nobody runs."""
+        self.feed([run(), run()])
         b = board()
         ci_health.apply_source(b, SOURCE)
-        self.assertEqual(tiles(b)["Build time"]["n"], "5m36s")
+        self.assertNotIn("Build time", tiles(b))
 
-    def test_build_time_tile_links_to_that_run(self):
-        self.feed([run(sha="fc44010")])
-        b = board()
-        ci_health.apply_source(b, SOURCE)
-        self.assertEqual(tiles(b)["Build time"]["href"],
-                         "https://github.com/o/r/actions/runs/fc44010")
+    def test_the_log_line_still_names_the_build_time(self):
+        # Useful when reading a run by eye, and it cannot disagree with a tile
+        # because it is not one.
+        self.feed([run(), run()])
+        line = ci_health.apply_source(board(), SOURCE)
+        self.assertIn("5m36s build", line)
 
     def test_all_red_still_reports_a_green_rate_and_no_build_time(self):
         self.feed([run("failure"), run("failure")])
@@ -292,19 +291,17 @@ class BuildCostSaysWhereItWasMeasured(unittest.TestCase):
         r["url"] = "https://forgejo.jimmyhoughjr.net/jimmy/M/actions/runs/4"
         return r
 
-    def test_both_cost_tiles_name_the_forge(self):
+    def test_the_rate_names_the_forge(self):
         self.feed([run(), run(), run("failure")])
         b = board()
         ci_health.apply_source(b, SOURCE)
-        t = tiles(b)
-        self.assertEqual(t["Build time"]["where"], "on github")
-        self.assertEqual(t["Build green"]["where"], "on github")
+        self.assertEqual(tiles(b)["Build green"]["where"], "on github")
 
-    def test_a_forge_measured_cost_says_so(self):
+    def test_a_forge_measured_rate_says_so(self):
         self.feed([self._forge(), self._forge(sha="b"), self._forge(sha="c")])
         b = board()
         ci_health.apply_source(b, SOURCE)
-        self.assertEqual(tiles(b)["Build time"]["where"], "on forgejo")
+        self.assertEqual(tiles(b)["Build green"]["where"], "on forgejo")
 
     def test_a_rate_spanning_two_forges_claims_neither(self):
         """`Build green` is one number over every sampled run, so no single
@@ -314,14 +311,6 @@ class BuildCostSaysWhereItWasMeasured(unittest.TestCase):
         b = board()
         ci_health.apply_source(b, SOURCE)
         self.assertNotIn("where", tiles(b)["Build green"])
-
-    def test_the_build_time_still_names_the_run_it_came_from(self):
-        # Unlike the rate, this one IS a single run, so a mixed sample does not
-        # stop it naming where that run was measured.
-        self.feed([self._forge(), run(sha="b"), run(sha="c")])
-        b = board()
-        ci_health.apply_source(b, SOURCE)
-        self.assertEqual(tiles(b)["Build time"]["where"], "on forgejo")
 
     def test_a_urlless_run_claims_no_place(self):
         runs = [run(), run(sha="b"), run(sha="c")]

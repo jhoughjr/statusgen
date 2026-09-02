@@ -230,6 +230,21 @@ def _build_tile(board, label, branch, pool, primary):
     else:
         sha = str(green.get("headSha", ""))[:7] or "?"
         meta = sha if ok else f"last green {sha}"
+        # How long that build took, beside the commit it was measured at.
+        #
+        # It used to be a tile of its own, written by ci_health from a separate
+        # fetch — and the two could describe different pipelines. MWServer's
+        # badge read green from the Forgejo mirror while the Build time tile
+        # beside it read 36m32s from a GitHub run of 2026-08-26, on a pipeline
+        # nobody runs. Same failure as the "Last green" tile before it: two
+        # tiles about one thing can disagree, and nothing tells the reader
+        # which to believe.
+        #
+        # Taken from the run this tile already reports, so the verdict, the
+        # commit and the cost are one statement about one build.
+        secs = lib.run_duration(green)
+        if secs is not None:
+            meta = f"{meta} · {lib.fmt_duration(secs)}"
         # The SHA is a fact; the age is not — it is only true at the instant it
         # is written. Baking "24m ago" into board.json meant a board sitting
         # open kept asserting a build had gone green 24 minutes ago, hours
@@ -342,9 +357,9 @@ def apply_tiles(board, label, runs, trunks, column_trunks=None):
     # missing one: it states a stale number beside the live ones, in the same
     # type, with the same confidence.
     folded = lib.remove_compare_tile(board, label, "Last green")
+    folded += lib.remove_compare_tile(board, label, "Build time")
     if folded:
-        print(f"ci-status: {label}: folded {folded} 'Last green' tile(s) "
-              "into the build tile")
+        print(f"ci-status: {label}: folded {folded} tile(s) into the build tile")
     # Retire build tiles for branches the COLUMN no longer calls a trunk, for
     # the same reason: a tile no collector writes any more states a stale
     # verdict beside the live ones, in the same type, and no later run corrects

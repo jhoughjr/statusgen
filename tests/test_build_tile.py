@@ -62,6 +62,24 @@ class BuildTileVerdict(unittest.TestCase):
         self.addCleanup(lambda: setattr(lib, "gh_runs", self._real))
         lib.gh_runs = lambda repo, limit: RUNS
 
+    def test_the_badge_carries_the_build_time_of_the_run_it_reports(self):
+        """One statement about one build: the verdict, the commit it was
+        measured at, and what that build cost. It was a separate tile from a
+        separate fetch, and the two could describe different pipelines."""
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", GREEN_FIRST, [])
+        # RUNS[2] ran 10:00:00 to 10:00:00 with no updatedAt, so no duration.
+        green = dict(RUNS[2], startedAt="2026-08-04T10:00:00Z",
+                     updatedAt="2026-08-04T10:05:36Z")
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", [green], [])
+        self.assertEqual(tile(board, "CI build")["meta"], "4bfbe2b · 5m36s")
+
+    def test_a_run_with_no_clock_still_states_its_commit(self):
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", GREEN_FIRST, [])
+        self.assertEqual(tile(board, "CI build")["meta"], "4bfbe2b")
+
     def test_a_green_trunk_states_the_verdict_and_the_commit(self):
         board = board_with([])
         ci_status.apply_tiles(board, "Phoenix", GREEN_FIRST, [])
@@ -418,13 +436,22 @@ class ARepoDeclaresItsOwnTrunks(unittest.TestCase):
     def test_other_tiles_in_the_column_are_untouched(self):
         board = board_with([
             {"label": "CI build · master", "n": "✓"},
-            {"label": "Build time", "n": "36m32s"},
+            {"label": "Build green", "n": "5/12"},
             {"label": "Tests green", "n": "9/9"},
         ])
         ci_status.apply_tiles(board, "Phoenix", self._runs("dev"), ["dev"])
         labels = [t["label"] for t in columns(board)[0]["items"]]
-        self.assertIn("Build time", labels)
+        self.assertIn("Build green", labels)
         self.assertIn("Tests green", labels)
+
+    def test_a_stale_build_time_tile_is_folded_into_the_badge(self):
+        """It used to be its own tile from a separate fetch, and the two could
+        describe different pipelines. The cost now rides on the badge, so the
+        old tile has to go rather than sit beside it holding another number."""
+        board = board_with([{"label": "Build time", "n": "36m32s"}])
+        ci_status.apply_tiles(board, "Phoenix", self._runs("dev"), ["dev"])
+        labels = [t["label"] for t in columns(board)[0]["items"]]
+        self.assertNotIn("Build time", labels)
 
     def test_it_writes_only_to_its_own_column(self):
         board = board_with([])

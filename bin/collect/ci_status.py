@@ -389,8 +389,15 @@ def update_ledger(site, board_dir, sources_runs):
         # new one was written without the `:swift` mark, and every run collected
         # after that lost the stack logo the rest of its history carries. A
         # config fix has to reach the record, or the gap stays visible forever.
+        #
+        # Matched on the LABEL as well as the repo, because a project that moves
+        # forge keeps its label and changes its repo. MWServer's runs are split
+        # across the GitHub repo and the forge mirror; they are one project on
+        # the board, so they wear one mark. Matching the repo alone would leave
+        # the half collected before the move behind, and no later run could
+        # reach it — the mirror's id never appears on those entries again.
         for entry in entries:
-            if entry.get("repo") != repo:
+            if entry.get("repo") != repo and entry.get("label") != label:
                 continue
             entry["label"] = label
             if logo:

@@ -277,6 +277,61 @@ class ShortRunnerNameTest(unittest.TestCase):
     def test_a_plain_name_survives_unchanged(self):
         self.assertEqual(lib.short_runner_name("opi"), "opi")
 
+    def test_the_architecture_comes_off_a_runner_label(self):
+        jobs = [{"name": "Tests & Build",
+                 "labels": ["self-hosted", "macos", "arm64", "mini"]}]
+        self.assertEqual(lib.jobs_arch(jobs), "arm64")
+
+    def test_the_architecture_comes_off_a_matrix_job_name_too(self):
+        """Where a `runs-on` matrix leaves it. MWServer's release states the
+        architecture in the job name and only `self-hosted` on the labels, so
+        reading labels alone would find nothing on the half that matters."""
+        jobs = [{"name": "build_push (arm64, self-hosted, mwserver, "
+                         "linux/arm64, 120)",
+                 "labels": ["self-hosted", "mwserver"]}]
+        self.assertEqual(lib.jobs_arch(jobs), "arm64")
+
+    def test_a_run_spanning_two_architectures_names_both(self):
+        """MWServer's real release run. arm64 builds on the box in this house
+        and amd64 on a hosted runner, in ONE run. Naming either alone would
+        describe half a build as the whole of it."""
+        jobs = [
+            {"name": "test", "labels": ["ubuntu-latest"]},
+            {"name": "build_push (arm64, self-hosted, mwserver, linux/arm64, 120)",
+             "labels": ["self-hosted", "mwserver"]},
+            {"name": "build_push (amd64, ubuntu-latest, linux/amd64, 90, type=registry)",
+             "labels": ["ubuntu-latest"]},
+        ]
+        self.assertEqual(lib.jobs_arch(jobs), "amd64+arm64")
+
+    def test_the_pair_is_ordered_so_it_does_not_shuffle(self):
+        # Jobs come back in whatever order the API gives them, and a label that
+        # reorders between pushes reads as a change that did not happen.
+        one = [{"name": "a (arm64)", "labels": []}, {"name": "b (amd64)", "labels": []}]
+        self.assertEqual(lib.jobs_arch(one), lib.jobs_arch(list(reversed(one))))
+
+    def test_an_image_name_alone_claims_no_architecture(self):
+        """`ubuntu-latest` is x64 today, and GitHub has since added arm images
+        under names that differ by a suffix. A table of them would be a guess
+        with an expiry date, so a run that does not say says nothing."""
+        for jobs in ([{"name": "test", "labels": ["ubuntu-latest"]}],
+                     [{"name": "test", "labels": ["macos-14"]}],
+                     [{"name": "test", "labels": []}],
+                     []):
+            with self.subTest(jobs=jobs):
+                self.assertIsNone(lib.jobs_arch(jobs))
+
+    def test_the_spellings_all_land_on_the_two_this_house_builds_for(self):
+        for word, expected in (("x64", "amd64"), ("x86_64", "amd64"),
+                               ("amd64", "amd64"), ("aarch64", "arm64"),
+                               ("ARM64", "arm64")):
+            with self.subTest(word=word):
+                self.assertEqual(
+                    lib.jobs_arch([{"name": "j", "labels": [word]}]), expected)
+
+    def test_a_malformed_job_does_not_raise(self):
+        self.assertIsNone(lib.jobs_arch([{}, {"labels": None, "name": None}]))
+
     def test_normalising_twice_changes_nothing(self):
         # Relied on where the cache is read: the same value passes through this
         # on every collector run.
@@ -316,10 +371,10 @@ class ForgeAttributionTest(unittest.TestCase):
                          "MWServer-Mirror/actions/runs/4")
 
     def setUp(self):
-        self._real_runs, self._real_runner = lib.gh_runs, lib.gh_run_runner
+        self._real = (lib.gh_runs, lib.gh_run_runner, lib.gh_run_arch)
 
     def tearDown(self):
-        lib.gh_runs, lib.gh_run_runner = self._real_runs, self._real_runner
+        lib.gh_runs, lib.gh_run_runner, lib.gh_run_arch = self._real
 
     def test_github_is_named_like_any_other_forge(self):
         self.assertEqual(lib.run_forge(RUN["url"]), "github")
@@ -373,6 +428,29 @@ class ForgeAttributionTest(unittest.TestCase):
         lib.gh_run_runner = lambda repo, run_id: "mini"
         line = lib.console_lines([("o/r", "Repo", 4)])[0]
         self.assertEqual(line["meta"], "· push · mini")
+
+    def test_a_row_names_the_box_then_the_architecture(self):
+        lib.gh_runs = lambda repo, limit: [dict(RUN)]
+        lib.gh_run_runner = lambda repo, run_id: "mini"
+        lib.gh_run_arch = lambda repo, run_id: "arm64"
+        line = lib.console_lines([("o/r", "Repo", 4)])[0]
+        self.assertEqual(line["meta"], "· push · on github · mini · arm64")
+
+    def test_a_run_that_does_not_state_its_architecture_omits_it(self):
+        lib.gh_runs = lambda repo, limit: [dict(RUN)]
+        lib.gh_run_runner = lambda repo, run_id: "mini"
+        lib.gh_run_arch = lambda repo, run_id: None
+        line = lib.console_lines([("o/r", "Repo", 4)])[0]
+        self.assertEqual(line["meta"], "· push · on github · mini")
+
+    def test_an_architecture_survives_a_run_with_no_box(self):
+        # A multi-box run names no single machine, and the architectures are
+        # then the only thing that says where the work actually happened.
+        lib.gh_runs = lambda repo, limit: [dict(RUN)]
+        lib.gh_run_runner = lambda repo, run_id: None
+        lib.gh_run_arch = lambda repo, run_id: "amd64+arm64"
+        line = lib.console_lines([("o/r", "Repo", 4)])[0]
+        self.assertEqual(line["meta"], "· push · on github · amd64+arm64")
 
 
 if __name__ == "__main__":

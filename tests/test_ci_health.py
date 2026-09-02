@@ -269,5 +269,80 @@ class DurationTest(unittest.TestCase):
         self.assertIsNone(lib.fmt_duration(None))
 
 
+class BuildCostSaysWhereItWasMeasured(unittest.TestCase):
+    """A cost is only comparable against a cost from the same machinery.
+
+    A wall clock from one forge's runners says nothing about a build that now
+    runs on another's, and the two are not the same pipeline even when they
+    build the same commit. It matters most mid-move: MWServer's verdict reads
+    `on forgejo` while its cost still reads `on github`, and the board saying
+    so is how that gets noticed rather than the older number being read as this
+    pipeline's.
+    """
+
+    def setUp(self):
+        self._real = lib.gh_run_history
+        self.addCleanup(lambda: setattr(lib, "gh_run_history", self._real))
+
+    def feed(self, runs):
+        lib.gh_run_history = lambda repo, **kw: runs
+
+    def _forge(self, **kw):
+        r = run(**kw)
+        r["url"] = "https://forgejo.jimmyhoughjr.net/jimmy/M/actions/runs/4"
+        return r
+
+    def test_both_cost_tiles_name_the_forge(self):
+        self.feed([run(), run(), run("failure")])
+        b = board()
+        ci_health.apply_source(b, SOURCE)
+        t = tiles(b)
+        self.assertEqual(t["Build time"]["where"], "on github")
+        self.assertEqual(t["Build green"]["where"], "on github")
+
+    def test_a_forge_measured_cost_says_so(self):
+        self.feed([self._forge(), self._forge(sha="b"), self._forge(sha="c")])
+        b = board()
+        ci_health.apply_source(b, SOURCE)
+        self.assertEqual(tiles(b)["Build time"]["where"], "on forgejo")
+
+    def test_a_rate_spanning_two_forges_claims_neither(self):
+        """`Build green` is one number over every sampled run, so no single
+        place is true of it. Naming the newest run's forge would quietly imply
+        the rest were measured there too."""
+        self.feed([self._forge(), run(sha="b"), run(sha="c")])
+        b = board()
+        ci_health.apply_source(b, SOURCE)
+        self.assertNotIn("where", tiles(b)["Build green"])
+
+    def test_the_build_time_still_names_the_run_it_came_from(self):
+        # Unlike the rate, this one IS a single run, so a mixed sample does not
+        # stop it naming where that run was measured.
+        self.feed([self._forge(), run(sha="b"), run(sha="c")])
+        b = board()
+        ci_health.apply_source(b, SOURCE)
+        self.assertEqual(tiles(b)["Build time"]["where"], "on forgejo")
+
+    def test_a_urlless_run_claims_no_place(self):
+        runs = [run(), run(sha="b"), run(sha="c")]
+        for r in runs:
+            del r["url"]
+        self.feed(runs)
+        b = board()
+        ci_health.apply_source(b, SOURCE)
+        self.assertNotIn("where", tiles(b)["Build green"])
+
+    def test_the_trend_chart_names_its_machinery_too(self):
+        """A trend across two forges is not one trend, and a bar from a retired
+        pipeline must not read as this one getting slower."""
+        chart = ci_health.build_chart(SOURCE, [run(), run(sha="b"), run(sha="c")])
+        self.assertIn("Measured on github.", chart["note"])
+
+    def test_a_mixed_chart_says_nothing_rather_than_the_wrong_thing(self):
+        chart = ci_health.build_chart(
+            SOURCE, [self._forge(), run(sha="b"), run(sha="c")])
+        self.assertNotIn("Measured", chart["note"])
+
+
 if __name__ == "__main__":
     unittest.main()

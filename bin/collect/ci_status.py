@@ -263,7 +263,13 @@ def _reach_quiet_trunks(repo, runs, trunks, from_forge=False):
     """
     if from_forge:
         return []
-    seen = {r.get("headBranch") for r in runs}
+    # A trunk counts as reached only if the window holds a run that SETTLED on
+    # it. Counting any run at all is what hid this: master's bot runs are all
+    # skipped, they sit in the window in numbers, and they made the branch look
+    # covered while carrying no verdict for the tile to read.
+    seen = {r.get("headBranch") for r in runs
+            if (r.get("conclusion") or r.get("status") or "")
+            not in lib.CONSOLE_SKIP}
     extra = []
     for branch in trunks:
         if branch in seen:

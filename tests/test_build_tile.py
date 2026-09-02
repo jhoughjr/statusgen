@@ -254,6 +254,22 @@ class ARepoDeclaresItsOwnTrunks(unittest.TestCase):
         finally:
             lib.gh_run_history = real
 
+    def test_a_branch_seen_only_as_skipped_runs_is_still_fetched(self):
+        """What hid this. Master's bot runs are all skipped, they sit in the
+        window in numbers, and counting any run at all made the branch look
+        covered while it carried no verdict for the tile to read."""
+        real = lib.gh_run_history
+        try:
+            asked = []
+            lib.gh_run_history = lambda repo, limit=20, branch=None, **kw: (
+                asked.append(branch) or self._runs(branch))
+            window = [dict(r, conclusion="skipped")
+                      for r in self._runs("master")]
+            ci_status._reach_quiet_trunks("o/r", window, ["master"])
+            self.assertEqual(asked, ["master"])
+        finally:
+            lib.gh_run_history = real
+
     def test_a_forge_source_is_never_asked_through_gh(self):
         # The repo path exists only on the forge, so the call could only fail.
         real = lib.gh_run_history

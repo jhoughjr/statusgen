@@ -24,6 +24,7 @@ Non-fatal by contract: no config → skip; any failure → board untouched, exit
 """
 import datetime
 import json
+import re
 import sys
 import pathlib
 
@@ -78,9 +79,31 @@ def parse_sources(spec):
 TRUNKS_DEFAULT = ("dev", "main", "master")
 
 
-def parse_trunks(cfg):
-    """"dev,main" → ["dev", "main"]; unset → TRUNKS_DEFAULT."""
-    spec = (cfg.get("ROOST_CI_TRUNKS") or "").strip()
+def trunks_key(label):
+    """The per-repo config key for a board label: "MWServer" → the suffix of
+    ROOST_CI_TRUNKS_MWSERVER. Anything not a letter or digit becomes `_`, so a
+    label with a space or a dash still names a key a shell file can hold."""
+    return "ROOST_CI_TRUNKS_" + re.sub(r"[^A-Za-z0-9]", "_", label or "").upper()
+
+
+def parse_trunks(cfg, label=None):
+    """"dev,main" → ["dev", "main"]; unset → TRUNKS_DEFAULT.
+
+    A repo may declare its own, as ROOST_CI_TRUNKS_<LABEL>. Projects do not
+    share a trunk set: MWServer's CI runs on the Forgejo mirror, which builds
+    dev alone, while Phoenix builds dev and main. Under one global list every
+    project is assumed to have every branch, and a project that does not gets a
+    tile nothing will ever write again.
+
+    A per-repo key of its own rather than a nested syntax inside ROOST_CI_TRUNKS:
+    ~/.roostrc is a flat KEY=VALUE file, and a second delimiter inside one value
+    is a thing to get wrong for no gain.
+    """
+    spec = ""
+    if label:
+        spec = (cfg.get(trunks_key(label)) or "").strip()
+    if not spec:
+        spec = (cfg.get("ROOST_CI_TRUNKS") or "").strip()
     if not spec:
         return list(TRUNKS_DEFAULT)
     return [b.strip() for b in spec.split(",") if b.strip()]
@@ -223,8 +246,41 @@ def apply_tiles(board, label, runs, trunks):
     if folded:
         print(f"ci-status: {label}: folded {folded} 'Last green' tile(s) "
               "into the build tile")
+    # Retire build tiles for branches this repo no longer calls a trunk, for the
+    # same reason. MWServer's CI moved to the Forgejo mirror, which builds dev
+    # alone, and its `CI build · master` tile stayed frozen on a 2026-08-19
+    # GitHub verdict that nothing would ever correct — a ✓ from a pipeline
+    # nobody runs, beside a live one, in the same type.
+    #
+    # Driven by the repo's declared trunks, never by what the window happened to
+    # hold. The window is the last runs per repo, so a busy dev can push a quiet
+    # main out of it, and retiring on absence would delete a healthy tile on a
+    # slow day. A branch stops being a trunk because someone says so.
+    retired = _retire_untrunked_tiles(board, label, trunks)
+    if retired:
+        print(f"ci-status: {label}: retired {retired} build tile(s) for "
+              f"branches no longer declared a trunk")
     for i, (branch, pool) in enumerate(pools):
         _build_tile(board, label, branch, pool, primary=(i == 0))
+
+
+def _retire_untrunked_tiles(board, label, trunks):
+    """Remove `CI build · <branch>` tiles whose branch is not a trunk here.
+
+    The unsuffixed `CI build` tile is never touched: it is the primary trunk's,
+    whichever branch that currently is, and removing it would delete the tile
+    this pass is about to write.
+    """
+    keep = {f"CI build · {b}" for b in trunks}
+    removed = 0
+    for col in lib.compare_columns(board, label):
+        items = col.get("items", [])
+        kept = [t for t in items
+                if not (str(t.get("label", "")).startswith("CI build · ")
+                        and t.get("label") not in keep)]
+        removed += len(items) - len(kept)
+        col["items"] = kept
+    return removed
 
 
 def _ledger_line(entry, repo_entries):
@@ -464,7 +520,6 @@ def main():
               "ROOST_CI_FORGEJO_URL/TOKEN — skipping the forge")
         forge_sources = []
     sources = sources + forge_sources
-    trunks = parse_trunks(cfg)
     # The run we are executing inside, if CI told us — see lib.self_run_from.
     self_run = lib.self_run_from(cfg)
     # One `gh run list` per repo per push. The feed, the tiles, and the ledger
@@ -516,7 +571,8 @@ def main():
         # trunk build could not mark itself green.
         runs = lib.apply_self_run(repo, runs, self_run)
         ledger_sources.append((repo, label, logo, runs))
-        apply_tiles(board, label, runs, trunks)
+        # Per repo: two projects on one board do not share a trunk set.
+        apply_tiles(board, label, runs, parse_trunks(cfg, label))
 
     # The ledger is written first because the console below is now rendered
     # FROM it. The section used to show a sliding window of the last few runs

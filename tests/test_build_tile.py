@@ -218,6 +218,104 @@ class FmtAge(unittest.TestCase):
         self.assertIsNone(lib.fmt_age(None, now=self.NOW))
 
 
+class ARepoDeclaresItsOwnTrunks(unittest.TestCase):
+    """Two projects on one board do not share a trunk set.
+
+    MWServer's CI moved to the Forgejo mirror, which builds dev alone, while
+    Phoenix builds dev and main. Under one global list every project is assumed
+    to have every branch, and a project that does not gets a tile nothing will
+    ever write again — MWServer's `CI build · master`, frozen on a 2026-08-19
+    GitHub verdict from a pipeline nobody runs.
+    """
+
+    def _runs(self, *branches):
+        return [{"conclusion": "success", "headBranch": b, "headSha": f"{b}0000000",
+                 "createdAt": "2026-09-01T10:00:00Z",
+                 "url": f"https://github.com/o/r/actions/runs/{b}"}
+                for b in branches]
+
+    def test_a_repo_key_overrides_the_global_list(self):
+        cfg = {"ROOST_CI_TRUNKS": "dev,main,master",
+               "ROOST_CI_TRUNKS_MWSERVER": "dev"}
+        self.assertEqual(ci_status.parse_trunks(cfg, "MWServer"), ["dev"])
+        self.assertEqual(ci_status.parse_trunks(cfg, "Phoenix"),
+                         ["dev", "main", "master"])
+
+    def test_a_label_with_punctuation_still_names_a_key(self):
+        # ~/.roostrc is a shell-style file; a key has to be shell-safe.
+        self.assertEqual(ci_status.trunks_key("MWServer-Models"),
+                         "ROOST_CI_TRUNKS_MWSERVER_MODELS")
+
+    def test_no_repo_key_falls_back_to_the_global_list(self):
+        cfg = {"ROOST_CI_TRUNKS": "dev,main"}
+        self.assertEqual(ci_status.parse_trunks(cfg, "MWServer"), ["dev", "main"])
+
+    def test_no_config_at_all_keeps_the_default(self):
+        self.assertEqual(ci_status.parse_trunks({}, "MWServer"),
+                         list(ci_status.TRUNKS_DEFAULT))
+
+    def test_a_tile_for_an_undeclared_branch_is_retired(self):
+        """The case. Nothing writes it any more, so no later run corrects it,
+        and it states a stale ✓ beside the live one in the same type."""
+        board = board_with([
+            {"label": "CI build · dev", "n": "✓", "tone": "go"},
+            {"label": "CI build · master", "n": "✓", "tone": "go",
+             "meta": "b9357e3"},
+        ])
+        ci_status.apply_tiles(board, "Phoenix", self._runs("dev"), ["dev"])
+        labels = [t["label"] for t in columns(board)[0]["items"]]
+        self.assertNotIn("CI build · master", labels)
+        self.assertIn("CI build · dev", labels)
+
+    def test_a_declared_trunk_missing_from_the_window_is_kept(self):
+        """The reason this is driven by config and never by absence. The window
+        is the last runs per repo, so a busy dev can push a quiet main out of
+        it, and retiring on absence would delete a healthy tile on a slow day."""
+        board = board_with([
+            {"label": "CI build · dev", "n": "✓", "tone": "go"},
+            {"label": "CI build · main", "n": "✓", "tone": "go", "meta": "aaa1111"},
+        ])
+        ci_status.apply_tiles(board, "Phoenix", self._runs("dev"), ["dev", "main"])
+        labels = [t["label"] for t in columns(board)[0]["items"]]
+        self.assertIn("CI build · main", labels)
+
+    def test_the_unsuffixed_tile_is_renamed_not_retired(self):
+        """It belongs to the primary trunk, whichever branch that currently is.
+        Retiring it would delete the tile this pass is about to write, and the
+        upsert renames it in place instead — one tile before, one after."""
+        board = board_with([{"label": "CI build", "n": "✓", "tone": "go"}])
+        ci_status.apply_tiles(board, "Phoenix", self._runs("dev"), ["dev"])
+        labels = [t["label"] for t in columns(board)[0]["items"]]
+        self.assertEqual(labels, ["CI build · dev"])
+
+    def test_an_empty_window_retires_nothing(self):
+        """Absent data leaves the board alone — the collector's standing
+        contract. A gh outage must not strip a column of its tiles."""
+        board = board_with([
+            {"label": "CI build · master", "n": "✓", "tone": "go"}])
+        ci_status.apply_tiles(board, "Phoenix", [], ["dev"])
+        labels = [t["label"] for t in columns(board)[0]["items"]]
+        self.assertIn("CI build · master", labels)
+
+    def test_other_tiles_in_the_column_are_untouched(self):
+        board = board_with([
+            {"label": "CI build · master", "n": "✓"},
+            {"label": "Build time", "n": "36m32s"},
+            {"label": "Tests green", "n": "9/9"},
+        ])
+        ci_status.apply_tiles(board, "Phoenix", self._runs("dev"), ["dev"])
+        labels = [t["label"] for t in columns(board)[0]["items"]]
+        self.assertIn("Build time", labels)
+        self.assertIn("Tests green", labels)
+
+    def test_it_writes_only_to_its_own_column(self):
+        board = board_with([])
+        columns(board)[1]["items"] = [{"label": "CI build · master", "n": "✓"}]
+        ci_status.apply_tiles(board, "Phoenix", self._runs("dev"), ["dev"])
+        self.assertEqual([t["label"] for t in columns(board)[1]["items"]],
+                         ["CI build · master"])
+
+
 class TheBadgeSaysWhereItWasMeasured(unittest.TestCase):
     """A ✓ that does not say where it came from asserts more than it knows.
 

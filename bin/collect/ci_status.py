@@ -79,29 +79,41 @@ def parse_sources(spec):
 TRUNKS_DEFAULT = ("dev", "main", "master")
 
 
-def trunks_key(label):
-    """The per-repo config key for a board label: "MWServer" → the suffix of
-    ROOST_CI_TRUNKS_MWSERVER. Anything not a letter or digit becomes `_`, so a
-    label with a space or a dash still names a key a shell file can hold."""
-    return "ROOST_CI_TRUNKS_" + re.sub(r"[^A-Za-z0-9]", "_", label or "").upper()
+def trunks_key(name):
+    """The config key for a source or a label: "MWServer" → the suffix of
+    ROOST_CI_TRUNKS_MWSERVER, "jimmy/MWServer-Mirror" → ..._JIMMY_MWSERVER_MIRROR.
+    Anything not a letter or digit becomes `_`, so a name with a slash, a space
+    or a dash still names a key a shell-style file can hold."""
+    return "ROOST_CI_TRUNKS_" + re.sub(r"[^A-Za-z0-9]", "_", name or "").upper()
 
 
-def parse_trunks(cfg, label=None):
+def parse_trunks(cfg, label=None, repo=None):
     """"dev,main" → ["dev", "main"]; unset → TRUNKS_DEFAULT.
 
-    A repo may declare its own, as ROOST_CI_TRUNKS_<LABEL>. Projects do not
-    share a trunk set: MWServer's CI runs on the Forgejo mirror, which builds
-    dev alone, while Phoenix builds dev and main. Under one global list every
-    project is assumed to have every branch, and a project that does not gets a
-    tile nothing will ever write again.
+    Resolved per SOURCE first, then per label, then globally.
 
-    A per-repo key of its own rather than a nested syntax inside ROOST_CI_TRUNKS:
+    Per source because one project's trunks can come from two forges. MWServer
+    builds dev on the Forgejo mirror and master on GitHub, and both sources
+    write into one column under one label — so a per-label answer cannot give
+    them different trunks, and whichever ran last would take the column.
+
+        ROOST_CI_TRUNKS_JIMMY_MWSERVER_MIRROR=dev
+        ROOST_CI_TRUNKS_AUSTIN_MACWORKS_MWSERVER=master
+
+    The label form stays for the ordinary case, where a project has one source
+    and naming the repo would be noise.
+
+    A key of its own rather than a nested syntax inside ROOST_CI_TRUNKS:
     ~/.roostrc is a flat KEY=VALUE file, and a second delimiter inside one value
     is a thing to get wrong for no gain.
     """
     spec = ""
-    if label:
-        spec = (cfg.get(trunks_key(label)) or "").strip()
+    for name in (repo, label):
+        if not name:
+            continue
+        spec = (cfg.get(trunks_key(name)) or "").strip()
+        if spec:
+            break
     if not spec:
         spec = (cfg.get("ROOST_CI_TRUNKS") or "").strip()
     if not spec:
@@ -222,14 +234,23 @@ def _build_tile(board, label, branch, pool, primary):
                             match=match, meta=meta, since=since, where=where)
 
 
-def apply_tiles(board, label, runs, trunks):
-    """One repo's tile pass: every trunk with settled runs gets its build tile,
-    the preferred one under the plain-renamed name, the rest branch-suffixed.
+def apply_tiles(board, label, runs, trunks, column_trunks=None):
+    """One SOURCE's tile pass: every trunk with settled runs gets its build
+    tile, the preferred one under the plain-renamed name, the rest
+    branch-suffixed.
 
     No trunk in the window leaves the tiles exactly as they were rather than
     setting them from whatever else happened to run — the collector's standing
     contract is that missing data leaves the board alone, and a badge driven by
     a feature branch is the bug that contract prevents.
+
+    `column_trunks` is every trunk the COLUMN carries, across all sources
+    feeding it, and only the retirement uses it. A column can be fed by two
+    sources: MWServer's dev comes from the Forgejo mirror and its master from
+    GitHub. Retiring against this source's own trunks would then have each
+    source delete the other's tile, and the column would flip between them by
+    whichever collector ran last. Defaults to `trunks`, which is the same thing
+    wherever a column has one source.
     """
     pools = settled_pools(runs, trunks)
     if not pools:
@@ -246,17 +267,18 @@ def apply_tiles(board, label, runs, trunks):
     if folded:
         print(f"ci-status: {label}: folded {folded} 'Last green' tile(s) "
               "into the build tile")
-    # Retire build tiles for branches this repo no longer calls a trunk, for the
-    # same reason. MWServer's CI moved to the Forgejo mirror, which builds dev
-    # alone, and its `CI build · master` tile stayed frozen on a 2026-08-19
-    # GitHub verdict that nothing would ever correct — a ✓ from a pipeline
-    # nobody runs, beside a live one, in the same type.
+    # Retire build tiles for branches the COLUMN no longer calls a trunk, for
+    # the same reason: a tile no collector writes any more states a stale
+    # verdict beside the live ones, in the same type, and no later run corrects
+    # it.
     #
-    # Driven by the repo's declared trunks, never by what the window happened to
-    # hold. The window is the last runs per repo, so a busy dev can push a quiet
-    # main out of it, and retiring on absence would delete a healthy tile on a
-    # slow day. A branch stops being a trunk because someone says so.
-    retired = _retire_untrunked_tiles(board, label, trunks)
+    # Driven by declared trunks, never by what the window happened to hold. The
+    # window is the last runs per repo, so a busy dev can push a quiet main out
+    # of it, and retiring on absence would delete a healthy tile on a slow day.
+    # A branch stops being a trunk because someone says so.
+    retired = _retire_untrunked_tiles(board, label,
+                                      column_trunks if column_trunks is not None
+                                      else trunks)
     if retired:
         print(f"ci-status: {label}: retired {retired} build tile(s) for "
               f"branches no longer declared a trunk")
@@ -560,6 +582,15 @@ def main():
     # The console feed below still carries every branch — seeing your PR fail
     # there is the point — but the badge answers "is the project green", and
     # only a trunk can answer that. See TRUNKS_DEFAULT.
+    # Every trunk a COLUMN carries, across the sources feeding it. Only the
+    # retirement uses this: a column fed by two forges must not have each
+    # source delete the other's tile. Built before the loop so the first source
+    # already knows what the last one will contribute.
+    column_trunks = {}
+    for repo, label, _, _ in sources:
+        for branch in parse_trunks(cfg, label, repo):
+            column_trunks.setdefault(label, []).append(branch)
+
     ledger_sources = []
     for repo, label, _, logo in sources:
         runs = window.get(repo)
@@ -571,8 +602,10 @@ def main():
         # trunk build could not mark itself green.
         runs = lib.apply_self_run(repo, runs, self_run)
         ledger_sources.append((repo, label, logo, runs))
-        # Per repo: two projects on one board do not share a trunk set.
-        apply_tiles(board, label, runs, parse_trunks(cfg, label))
+        # Per source: one project's trunks can come from two forges, and two
+        # projects on one board do not share a trunk set either way.
+        apply_tiles(board, label, runs, parse_trunks(cfg, label, repo),
+                    column_trunks=column_trunks.get(label))
 
     # The ledger is written first because the console below is now rendered
     # FROM it. The section used to show a sliding window of the last few runs

@@ -169,12 +169,25 @@ def settled_pools(runs, trunks):
 
 
 def _tile_names(base, branch, primary):
-    """(label, match) for a tile. The primary trunk matches the legacy plain
-    label so the existing tile renames in place instead of orphaning."""
+    """(label, match) for a tile. Each trunk matches its own label, never the
+    bare base.
+
+    `primary` is kept for the call shape and no longer changes the match. It
+    used to hand the first trunk the bare base so a legacy unsuffixed tile
+    renamed in place — but `upsert_compare_tile` matches by PREFIX, so "CI
+    build" also matches "CI build · dev", and the first trunk claimed whichever
+    build tile happened to sit first in the column.
+
+    That was invisible while one source fed a column, because the first trunk's
+    own tile was the one it found. With two — MWServer's dev from the Forgejo
+    mirror and its master from GitHub — the sources took turns renaming a single
+    tile, and the column held one build verdict that changed identity on every
+    push. `_migrate_bare_tile` does the rename now, once, by exact name.
+    """
     if not branch:
         return base, base
     label = f"{base} · {branch}"
-    return label, (base if primary else label)
+    return label, label
 
 
 def _build_tile(board, label, branch, pool, primary):
@@ -280,6 +293,24 @@ def _reach_quiet_trunks(repo, runs, trunks, from_forge=False):
     return extra
 
 
+def _migrate_bare_tile(board, label, branch):
+    """Rename a legacy unsuffixed `CI build` tile to the branch that now owns it.
+
+    By EXACT name. This used to happen through the upsert's prefix match, which
+    also matched `CI build · dev` and so let a source claim a tile belonging to
+    another branch entirely.
+
+    A no-op once done, and a no-op on any column that already names its
+    branches — which is every column after the first run of this.
+    """
+    for col in lib.compare_columns(board, label):
+        for tile in col.get("items", []):
+            if tile.get("label") == "CI build":
+                tile["label"] = f"CI build · {branch}"
+                return True
+    return False
+
+
 def apply_tiles(board, label, runs, trunks, column_trunks=None):
     """One SOURCE's tile pass: every trunk with settled runs gets its build
     tile, the preferred one under the plain-renamed name, the rest
@@ -303,6 +334,7 @@ def apply_tiles(board, label, runs, trunks, column_trunks=None):
         print(f"ci-status: {label}: nothing settled on {'/'.join(trunks)} in "
               "the window — leaving the tiles as-is")
         return
+    _migrate_bare_tile(board, label, pools[0][0])
     # Retire the "Last green" tiles this collector used to write beside the
     # verdict. An upsert never removes, so without this the old tile would keep
     # the SHA it last held while the merged tile moved on, and no later run

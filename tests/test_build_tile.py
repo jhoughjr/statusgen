@@ -300,6 +300,33 @@ class ARepoDeclaresItsOwnTrunks(unittest.TestCase):
         self.assertEqual(ci_status.trunks_key("jimmy/MWServer-Mirror"),
                          "ROOST_CI_TRUNKS_JIMMY_MWSERVER_MIRROR")
 
+    def test_two_sources_keep_two_tiles_rather_than_renaming_one(self):
+        """The collision. `upsert_compare_tile` matches by PREFIX, so the first
+        trunk's old `CI build` match also matched `CI build · dev`. With one
+        source that was invisible — it found its own tile. With two, MWServer's
+        dev from the mirror and its master from GitHub took turns renaming a
+        single tile, and the column held one verdict that changed identity on
+        every push."""
+        board = board_with([])
+        ci_status.apply_tiles(board, "Phoenix", self._runs("master"), ["master"],
+                              column_trunks=["dev", "master"])
+        ci_status.apply_tiles(board, "Phoenix", self._runs("dev"), ["dev"],
+                              column_trunks=["dev", "master"])
+        labels = sorted(t["label"] for t in columns(board)[0]["items"])
+        self.assertEqual(labels, ["CI build · dev", "CI build · master"])
+
+    def test_a_legacy_bare_tile_is_renamed_by_exact_name(self):
+        board = board_with([{"label": "CI build", "n": "✓", "tone": "go"}])
+        ci_status.apply_tiles(board, "Phoenix", self._runs("dev"), ["dev"])
+        self.assertEqual([t["label"] for t in columns(board)[0]["items"]],
+                         ["CI build · dev"])
+
+    def test_the_migration_never_touches_an_already_named_tile(self):
+        board = board_with([{"label": "CI build · master", "n": "✓"}])
+        self.assertFalse(ci_status._migrate_bare_tile(board, "Phoenix", "dev"))
+        self.assertEqual([t["label"] for t in columns(board)[0]["items"]],
+                         ["CI build · master"])
+
     def test_one_source_does_not_retire_the_other_sources_tile(self):
         """The two-forge column. Retiring against a source's own trunks would
         have each delete the other's tile, and the column would flip between

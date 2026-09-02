@@ -43,6 +43,11 @@ RUNS_TITLE_WAS = "CI — recent runs"
 # Rows shown before the console scrolls. Ten is what the window used to render
 # (eight runs and two watch chips), so the block keeps the height it had.
 RUNS_ROWS = 10
+# How far back to look on a trunk the main window missed. A branch that builds
+# rarely still collects bot runs — MWServer's master carries dozens on issue
+# comments, all skipped — and the filter that drops them runs after this fetch,
+# so the reach has to clear them to find the build underneath.
+QUIET_TRUNK_DEPTH = 60
 TEMPLATE = pathlib.Path(__file__).resolve().parent.parent.parent / "renderer" / "board.template.html"
 
 
@@ -248,6 +253,11 @@ def _reach_quiet_trunks(repo, runs, trunks, from_forge=False):
     this reaches back as far as the branch's own history rather than paging the
     repo's.
 
+    The depth is what it is because a quiet trunk is not quiet in `gh run list`:
+    MWServer's master carries dozens of bot runs on issue comments, every one of
+    them skipped, and a shallow fetch returns those and nothing that built. The
+    filter that drops them is downstream, so the reach has to clear them first.
+
     Forge sources are skipped: the fetch is a `gh` call against a repo path
     that exists only on the forge, so it could only ever fail.
     """
@@ -258,7 +268,7 @@ def _reach_quiet_trunks(repo, runs, trunks, from_forge=False):
     for branch in trunks:
         if branch in seen:
             continue
-        found = lib.gh_run_history(repo, limit=10, branch=branch)
+        found = lib.gh_run_history(repo, limit=QUIET_TRUNK_DEPTH, branch=branch)
         if found:
             extra += found
     return extra

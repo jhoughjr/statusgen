@@ -234,6 +234,48 @@ class ARepoDeclaresItsOwnTrunks(unittest.TestCase):
                  "url": f"https://github.com/o/r/actions/runs/{b}"}
                 for b in branches]
 
+    def test_a_source_key_beats_the_label_key(self):
+        """One project's trunks can come from two forges. MWServer builds dev
+        on the mirror and master on GitHub, and both write into one column
+        under one label, so a per-label answer cannot tell them apart."""
+        cfg = {"ROOST_CI_TRUNKS_MWSERVER": "dev",
+               "ROOST_CI_TRUNKS_AUSTIN_MACWORKS_MWSERVER": "master"}
+        self.assertEqual(
+            ci_status.parse_trunks(cfg, "MWServer", "Austin-MacWorks/MWServer"),
+            ["master"])
+        self.assertEqual(
+            ci_status.parse_trunks(cfg, "MWServer", "jimmy/MWServer-Mirror"),
+            ["dev"])
+
+    def test_a_repo_name_becomes_a_shell_safe_key(self):
+        self.assertEqual(ci_status.trunks_key("jimmy/MWServer-Mirror"),
+                         "ROOST_CI_TRUNKS_JIMMY_MWSERVER_MIRROR")
+
+    def test_one_source_does_not_retire_the_other_sources_tile(self):
+        """The two-forge column. Retiring against a source's own trunks would
+        have each delete the other's tile, and the column would flip between
+        them by whichever collector ran last."""
+        board = board_with([
+            {"label": "CI build · dev", "n": "✓", "tone": "go"},
+            {"label": "CI build · master", "n": "✓", "tone": "go"},
+        ])
+        # The forge source: dev only, but the column carries both.
+        ci_status.apply_tiles(board, "Phoenix", self._runs("dev"), ["dev"],
+                              column_trunks=["dev", "master"])
+        labels = [t["label"] for t in columns(board)[0]["items"]]
+        self.assertIn("CI build · master", labels)
+        self.assertIn("CI build · dev", labels)
+
+    def test_a_branch_no_source_claims_is_still_retired(self):
+        board = board_with([
+            {"label": "CI build · dev", "n": "✓"},
+            {"label": "CI build · gone", "n": "✓"},
+        ])
+        ci_status.apply_tiles(board, "Phoenix", self._runs("dev"), ["dev"],
+                              column_trunks=["dev", "master"])
+        labels = [t["label"] for t in columns(board)[0]["items"]]
+        self.assertNotIn("CI build · gone", labels)
+
     def test_a_repo_key_overrides_the_global_list(self):
         cfg = {"ROOST_CI_TRUNKS": "dev,main,master",
                "ROOST_CI_TRUNKS_MWSERVER": "dev"}

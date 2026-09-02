@@ -332,6 +332,53 @@ class ShortRunnerNameTest(unittest.TestCase):
     def test_a_malformed_job_does_not_raise(self):
         self.assertIsNone(lib.jobs_arch([{}, {"labels": None, "name": None}]))
 
+    def test_box_names_from_the_older_cache_file_are_not_lost(self):
+        """Each was paid for with a REST call, and the ledger never re-asks —
+        it reads the cache alone. A name dropped here is a row that loses its
+        box for good, because that run will not pass through the feed again."""
+        import json as _json
+        import tempfile
+        real = (lib._RUNNER_CACHE, lib._RUNNER_CACHE_FILE,
+                lib._LEGACY_RUNNER_CACHE_FILE, lib.sh)
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                lib._RUNNER_CACHE = None
+                lib._RUNNER_CACHE_FILE = f"{d}/run-facts.json"
+                lib._LEGACY_RUNNER_CACHE_FILE = f"{d}/runner-names.json"
+                _json.dump({"o/r\x1f7": "jimmys-mac-mini"},
+                           open(lib._LEGACY_RUNNER_CACHE_FILE, "w"))
+                lib.sh = lambda *a, **k: (_ for _ in ()).throw(
+                    AssertionError("re-fetched a name the old cache had"))
+                self.assertEqual(lib.gh_run_runner("o/r", 7), "mini")
+                # Nothing was ever learned about the architecture, so it says so
+                # rather than inventing one.
+                self.assertIsNone(lib.gh_run_arch("o/r", 7))
+        finally:
+            (lib._RUNNER_CACHE, lib._RUNNER_CACHE_FILE,
+             lib._LEGACY_RUNNER_CACHE_FILE, lib.sh) = real
+
+    def test_the_newer_cache_wins_where_both_know_a_run(self):
+        # The new record carries the architecture as well, so it is the better
+        # answer wherever the two files overlap.
+        import json as _json
+        import tempfile
+        real = (lib._RUNNER_CACHE, lib._RUNNER_CACHE_FILE,
+                lib._LEGACY_RUNNER_CACHE_FILE)
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                lib._RUNNER_CACHE = None
+                lib._RUNNER_CACHE_FILE = f"{d}/run-facts.json"
+                lib._LEGACY_RUNNER_CACHE_FILE = f"{d}/runner-names.json"
+                _json.dump({"o/r\x1f7": "old-macbook"},
+                           open(lib._LEGACY_RUNNER_CACHE_FILE, "w"))
+                _json.dump({"o/r\x1f7": {"box": "mini", "arch": "arm64"}},
+                           open(lib._RUNNER_CACHE_FILE, "w"))
+                self.assertEqual(lib.gh_run_runner("o/r", 7), "mini")
+                self.assertEqual(lib.gh_run_arch("o/r", 7), "arm64")
+        finally:
+            (lib._RUNNER_CACHE, lib._RUNNER_CACHE_FILE,
+             lib._LEGACY_RUNNER_CACHE_FILE) = real
+
     def test_normalising_twice_changes_nothing(self):
         # Relied on where the cache is read: the same value passes through this
         # on every collector run.

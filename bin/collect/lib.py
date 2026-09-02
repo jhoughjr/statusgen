@@ -65,12 +65,47 @@ def load_board(path):
 
 
 def save_board(path, board):
+    """Write a board so a reader never sees a half-written one.
+
+    Written to a temporary file beside the target and moved into place, because
+    `os.replace` is atomic: a reader opening the path gets the whole old board
+    or the whole new one, never a mixture.
+
+    Writing in place is what produced this, on 2026-09-01: two status runs
+    overlapped, the shorter document landed inside the longer file, and
+    clauffice/board.json ended as 141,943 valid bytes followed by 199 bytes of
+    the previous file's tail. The board is parsed in the browser, so a file in
+    that state is not a stale board, it is no board at all — every reader gets a
+    blank page until the next run happens to write a clean one.
+
+    Overlapping runs are ordinary here: a scheduled agent publishes the site and
+    a person can publish it by hand at the same moment. This does not serialise
+    them, and is not meant to. It makes the loser of a race harmless: last
+    writer wins, whole.
+
+    The temp name carries the pid so two writers cannot share one, and it is
+    hidden so a directory listing between the write and the move shows nothing
+    new. The move is within the directory, so it stays on one filesystem.
+    """
     # Every collector's last act before the file lands, so a compare column
     # reaches the renderer in its declared order whichever collector wrote to
     # it last. See apply_column_order for why the board declares it.
     apply_column_order(board)
-    json.dump(board, open(path, "w"), indent=2)
-    open(path, "a").write("\n")
+    path = pathlib.Path(path)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "w") as fh:
+            json.dump(board, fh, indent=2)
+            fh.write("\n")
+        os.replace(tmp, path)
+    except BaseException:
+        # Leaving the temp file behind would litter the published site with a
+        # dotfile per failed run, and the board itself is untouched either way.
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def board_at(site, rel, before="7 days ago"):

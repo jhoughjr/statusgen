@@ -89,6 +89,23 @@ def finished_runs(runs):
     return [r for r in (runs or []) if r.get("conclusion") in FINISHED]
 
 
+def _measured_on(runs):
+    """"on <forge>" for a set of runs, or None when they disagree or say
+    nothing.
+
+    A cost is only comparable against another cost from the same machinery, so
+    the tile has to name the machinery. Runs that span two forges are the case
+    worth being careful about: the tile is one number over all of them, and no
+    single place would be true of it, so it names none rather than picking the
+    newest run's and implying the rest.
+    """
+    forges = {lib.run_forge(r.get("url")) for r in runs}
+    forges.discard(None)
+    if len(forges) != 1:
+        return None
+    return f"on {forges.pop()}"
+
+
 def short_sha(run):
     return str(run.get("headSha", ""))[:7]
 
@@ -127,6 +144,12 @@ def build_chart(source, runs):
         # the bar labels by a few seconds.
         note += (f" Fastest green {lib.fmt_duration(min(ok_secs))}, "
                  f"slowest {lib.fmt_duration(max(ok_secs))}.")
+    # The chart is a trend, and a trend across two forges is not one. Naming
+    # the machinery is what stops a bar from a retired pipeline being read as
+    # this one getting slower.
+    where = _measured_on(runs)
+    if where:
+        note += f" Measured {where}."
     return {
         "kind": "barchart",
         "icon": "⏱️",
@@ -151,6 +174,17 @@ def apply_source(board, source):
     if not done:
         return None
 
+    # Where these numbers were measured. A cost is only comparable against
+    # another cost from the same machinery: a wall clock from one forge's
+    # runners says nothing about a build that now runs on another's, and the
+    # two are not the same pipeline even when they build the same commit.
+    #
+    # It matters most while a project is moving. MWServer's verdict tile reads
+    # `on forgejo` and its cost still reads `on github`, and the board saying so
+    # is how that gets noticed instead of the older number being read as this
+    # pipeline's.
+    where = _measured_on(done)
+
     # Build time comes from the newest run that actually built — a failed run's
     # clock is however far it got before dying, which is not a build time.
     newest_ok = next((r for r in done if r.get("conclusion") == "success"), None)
@@ -160,14 +194,15 @@ def apply_source(board, source):
             lib.upsert_compare_tile(
                 board, source["column"], "Build time",
                 lib.fmt_duration(secs), tone="none",
-                href=newest_ok.get("url"))
+                href=newest_ok.get("url"),
+                where=_measured_on([newest_ok]))
 
     passed = sum(1 for r in done if r.get("conclusion") == "success")
     # Amber below two-thirds: a pipeline red a third of the time is not a gate
     # anyone trusts, and the tile should say so before someone has to notice.
     tone = "go" if passed * 3 >= len(done) * 2 else "you"
     lib.upsert_compare_tile(board, source["column"], "Build green",
-                            f"{passed}/{len(done)}", tone=tone)
+                            f"{passed}/{len(done)}", tone=tone, where=where)
 
     chart = build_chart(source, done)
     if chart:

@@ -33,8 +33,12 @@ TONES = {
 
 
 def fetch_json(url, token):
-    """Fetch JSON from a URL with bearer token auth. Raises on failure."""
-    request = urllib.request.Request(url)
+    """Fetch JSON from a URL with bearer token auth. Raises on failure.
+
+    The agent is named because the edge refuses the default one that python-urllib sends. Cloudflare answers 403 to it,
+    which reads as rookery refusing the credential when rookery never saw the request.
+    """
+    request = urllib.request.Request(url, headers={"User-Agent": "roost-rookery-collector"})
     if token:
         request.add_header("Authorization", f"Bearer {token}")
     try:
@@ -119,17 +123,20 @@ def main():
     # Fetch assignments (which contain seats) from /api/work.
     try:
         payload = fetch_json(f"{url}/api/work", token)
-        if not isinstance(payload, list):
-            print("rookery: unexpected /api/work payload shape — leaving board as-is")
+        # The route answers an envelope, `{"assignments": [...], "can": ...}`, and the seats are folded into each
+        # assignment. `can` says what this caller may do, which the board does not draw.
+        assignments = payload.get("assignments") if isinstance(payload, dict) else payload
+        if not isinstance(assignments, list):
+            print("rookery: unexpected /api/work payload shape - leaving board as-is")
             return 0
     except Exception as error:
         print(f"rookery: {url}/api/work did not answer ({error}) — leaving board as-is")
         return 0
 
     board = lib.load_board(board_path)
-    lib.upsert_section(board, "Seats", section(payload, url), after_kind="compare")
+    lib.upsert_section(board, "Seats", section(assignments, url), after_kind="compare")
     lib.save_board(board_path, board)
-    seat_count = sum(len(a.get("seats", [])) for a in payload)
+    seat_count = sum(len(a.get("seats", [])) for a in assignments)
     print(f"rookery: {seat_count} seat(s) onto {board_path}")
     return 0
 

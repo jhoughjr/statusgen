@@ -7,6 +7,7 @@ Failing collectors are visually distinct.
 
 Config (~/.roostrc):
   ROOST_COLLECTOR_LOG=<path>  # path to roost-collectors.json, defaults to ${XDG_STATE_HOME:-$HOME/.local/state}/roost-collectors.json
+  ROOST_COLLECTOR_BOARD=clauffice  # the board directory under the site, which has no board at its root
 
 Non-fatal by contract: no config or no file means skip; any failure → board untouched, exit 0.
 """
@@ -119,7 +120,9 @@ def main():
         print(f"collectors: {log_path} not found - skipping")
         return 0
 
-    board_path = lib.site_dir(cfg) / "board.json"
+    # The site holds one directory per board and no board at its root, so a board without a name lands nowhere.
+    board_dir = cfg.get("ROOST_COLLECTOR_BOARD", "clauffice")
+    board_path = lib.site_dir(cfg) / board_dir / "board.json"
     if not board_path.exists():
         print(f"collectors: {board_path} not found - skipping")
         return 0

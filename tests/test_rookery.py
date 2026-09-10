@@ -131,3 +131,27 @@ class SeatLinesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheEnvelopeTheRouteAnswers(unittest.TestCase):
+    """`/api/work` answers `{"assignments": [...], "can": ...}` rather than a bare list.
+
+    The collector read the envelope as the list, found no assignments in it, and left the board alone on every run
+    while saying so to a log nobody reads.
+    """
+
+    def test_the_assignments_are_taken_out_of_the_envelope(self):
+        payload = {"assignments": [{"id": "a1", "seats": [{"id": "s1", "role": "builder", "state": "running"}]}],
+                   "can": {"ratify": True}}
+
+        assignments = payload.get("assignments") if isinstance(payload, dict) else payload
+
+        self.assertIsInstance(assignments, list)
+        self.assertEqual(sum(len(a.get("seats", [])) for a in assignments), 1)
+
+    def test_a_bare_list_is_still_read(self):
+        payload = [{"id": "a1", "seats": []}]
+
+        assignments = payload.get("assignments") if isinstance(payload, dict) else payload
+
+        self.assertEqual(assignments, payload)

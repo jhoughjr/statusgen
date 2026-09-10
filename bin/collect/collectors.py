@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""collectors.py — render collector run records as a board section.
+"""collectors.py - render collector run records as a board section.
 
 Displays the status of each collector from a run-record file written by roost.
 One line per collector shows its name, success/failure, duration, and age.
@@ -116,28 +116,28 @@ def main():
     log_path = collector_log_path(cfg)
 
     if not log_path.exists():
-        print(f"collectors: {log_path} not found — skipping")
+        print(f"collectors: {log_path} not found - skipping")
         return 0
 
     board_path = lib.site_dir(cfg) / "board.json"
     if not board_path.exists():
-        print(f"collectors: {board_path} not found — skipping")
+        print(f"collectors: {board_path} not found - skipping")
         return 0
 
     try:
         record = load_run_record(log_path)
         if not isinstance(record, dict):
-            print("collectors: unexpected log file shape — leaving board as-is")
+            print("collectors: unexpected log file shape - leaving board as-is")
             return 0
     except json.JSONDecodeError as error:
-        print(f"collectors: {log_path} is malformed JSON — leaving board as-is")
+        print(f"collectors: {log_path} is malformed JSON - leaving board as-is")
         return 0
     except Exception as error:
-        print(f"collectors: {log_path} could not be read ({error}) — leaving board as-is")
+        print(f"collectors: {log_path} could not be read ({error}) - leaving board as-is")
         return 0
 
     if "at" not in record:
-        print("collectors: log record missing 'at' timestamp — leaving board as-is")
+        print("collectors: log record missing 'at' timestamp - leaving board as-is")
         return 0
 
     now_ms = int(time.time() * 1000)

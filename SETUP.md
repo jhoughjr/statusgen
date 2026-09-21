@@ -1,6 +1,6 @@
 # Setup: from a bare box to hosting
 
-This is the full stack `statusgen` (and any static/dynamic site) rides on:
+This is the full stack under `statusgen` and any other static or dynamic site:
 
 ```
 Internet ─▶ Cloudflare ─▶ cloudflared tunnel ─▶ nginx :80 ─▶ Dokku app containers
@@ -193,24 +193,16 @@ bin/update.sh status-site demo
 
 ## Scheduled refresh (keep "last status = current state")
 
-Status pushes are event-driven, so the board ages between pushes. To keep it
-honest, run `roost status "scheduled refresh"` on a timer from an always-on
-machine **that can run your test suite** (stats are measured fresh on every
-push — see `ROOST_STATS_TEST_CMD`). The Dokku host only serves the site; the
-scheduled pusher can be any box with:
+A status push happens when something changes, so the board gets older between pushes. To keep it current, run `roost status "scheduled refresh"` on a timer from a machine that is always on. The Dokku host only builds and serves the site. It runs no collector. In the house, the mini runs the refresh every hour, and the opi only deploys.
 
-1. clones of `roost`, `statusgen`, the status site repo, and the measured repo
-2. `~/.roostrc` (NB: shell-sourced — quote values containing spaces, e.g.
-   `ROOST_STATS_TEST_CMD="npm run test:coverage"`)
-3. its SSH key registered with Dokku (`sudo dokku ssh-keys:add <name>` on the
-   host) and with your git forge for pulls
-4. (macOS) a LaunchAgent, e.g. `~/Library/LaunchAgents/<label>.plist` with
-   `StartInterval` 3600 running `roost status "scheduled refresh"` — make sure
-   its `PATH` includes your node/npm install; launchd does not source your shell
-   profile. Logs: point StandardOut/ErrPath at `~/Library/Logs/`.
+The scheduled pusher needs:
 
-`roost status` (its deploy step) should push to BOTH the dokku remote and a
-git-forge `origin` mirror, so every machine sees current history.
+1. Clones of `roost`, `statusgen`, the status site repo, and each repo that a collector measures.
+2. `~/.roostrc`. The shell reads this file, so put quotes around a value with spaces, for example `ROOST_STATS_TEST_CMD="npm run test:coverage"`.
+3. Its SSH key registered with Dokku (`sudo dokku ssh-keys:add <name>` on the host) and with your git forge for pulls.
+4. On macOS, a LaunchAgent, for example `~/Library/LaunchAgents/<label>.plist` with `StartInterval` 3600 that runs `roost status "scheduled refresh"`. Make sure that its `PATH` includes your node and npm install, because launchd does not read your shell profile. Send `StandardOutPath` and `StandardErrorPath` to `~/Library/Logs/`.
+5. On macOS, Remote Login on, and the machine's own key in its `authorized_keys`. macOS Local Network Privacy can stop a launchd agent from reaching the LAN, and the grant changes without warning. `roost status` runs itself again through `ssh localhost`, because a process that sshd starts is exempt. Without the loopback hop, the run continues in place, and the Dokku push can fail with `EHOSTUNREACH`.
 
-Optional: `gh auth login` on the pusher keeps the CI-runs board section fresh;
-without it that collector no-ops (non-fatal by contract).
+More than one machine can push the site, for example the scheduled pusher and a laptop. `roost status` rebases the site on the `origin` mirror before it deploys. On a conflict, it adopts the mirror and regenerates the boards one time. If it cannot fetch the mirror, it stops and does not push. Then it force-pushes to the Dokku remote and pushes to `origin`, so every machine sees the current history. After the push, it reads Dokku's deploy output and fails if Dokku did not serve `status.<domain>`.
+
+Optional: run `gh auth login` on the pusher to keep the GitHub-backed sections current. Without it, those collectors keep their last values, and the push continues.

@@ -30,7 +30,8 @@
       "staleAfterMinutes": { "type": "num" },
       "hide": { "type": "list" },
       "order": { "type": "list" },
-      "app": { "type": "str", "__doc": "The declared app this product board is about. app_stats.py fills the first stats section from pulse's feed for it (house#93)." }
+      "app": { "type": "str", "__doc": "The declared app this product board is about. app_stats.py fills the first stats section from pulse's feed for it (house#93)." },
+      "map": { "type": "str", "__doc": "A wayfinder map, owner/repo#number, whose tickets app_stats.py draws as the board's Features cards (house#94)." }
     }
   },
   "sectionCommon": {

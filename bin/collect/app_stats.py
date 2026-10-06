@@ -6,10 +6,21 @@ for that app, GET /api/app/<name>, the same feed the coop's app page reads, so t
 and writes the board's first stats section: whether it answers, its memory, its secrets owed a rotation, its jobs, and
 last night's backup. The banner and every other section stay as a person wrote them.
 
+A board may also name a wayfinder map, `"map": "jimmy/house#103"`. Then the board's Features section is drawn from
+that map's tickets on the forge, one card per ticket with its state (house#94): a closed ticket is shipped, an open
+one that a seat holds is in flight, and an open one nobody holds is next. The tickets are read with a read-only forge
+token from ROOST_FORGE_ISSUE_TOKEN in roostrc, the way the CI collector's token is held, or ROOST_FORGE_TOKEN, or the file
+ROOST_FORGE_TOKEN_FILE names, on standard input
+to curl and never on a command line. No token -> the Features section is left as it is.
+
 Config (~/.roostrc or the environment):
   ROOST_PULSE_URL=https://pulse.example.net   # pulse, default https://pulse.jimmyhoughjr.net
   ROOST_NODE_KEY=...                           # pulse's node key, or
   ROOST_NODE_KEY_FILE=~/.roost_node_key        # the file that holds it, the default
+  ROOST_FORGE_URL=https://forgejo.example.net  # the forge, default https://forgejo.jimmyhoughjr.net
+  ROOST_FORGE_ISSUE_TOKEN=...                  # a read-only forge token in roostrc, placed by hatchery's rotation, or
+  ROOST_FORGE_TOKEN=...                        # the same from the environment, or
+  ROOST_FORGE_TOKEN_FILE=~/.forge_read_token   # the file that holds it, the default
 
 The key goes to curl on standard input and never on a command line, so the process list never shows it.
 
@@ -17,6 +28,7 @@ Non-fatal by contract: no key -> skip; a board whose feed does not answer -> tha
 """
 import datetime
 import json
+import re
 import os
 import pathlib
 import subprocess
@@ -39,6 +51,66 @@ def node_key(cfg):
         return open(path).read().strip()
     except OSError:
         return ""
+
+
+def forge_token(cfg):
+    """A read-only forge token from the environment, roostrc, or the holder file the host keeps."""
+    value = cfg.get("ROOST_FORGE_ISSUE_TOKEN", "") or cfg.get("ROOST_FORGE_TOKEN", "")
+    if value:
+        return value
+    path = os.path.expanduser(cfg.get("ROOST_FORGE_TOKEN_FILE", "~/.forge_read_token"))
+    try:
+        return open(path).read().strip()
+    except OSError:
+        return ""
+
+
+def read_map_tickets(forge, token, spec):
+    """The tickets under one map, `owner/repo#number`, newest first, or None with the reason."""
+    try:
+        repo, number = spec.rsplit("#", 1)
+        number = int(number)
+    except ValueError:
+        return None, "a map is owner/repo#number"
+    url = "{}/api/v1/repos/{}/issues?state=all&type=issues&limit=200".format(forge.rstrip("/"), repo)
+    config = 'header = "Authorization: token {}"\nheader = "User-Agent: statusgen-app-stats/1"\n'.format(token)
+    try:
+        answer = subprocess.run(["curl", "-sfS", "--max-time", "20", "-K", "-", url], input=config, capture_output=True, text=True, timeout=25)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return None, str(error)
+    if answer.returncode != 0:
+        return None, answer.stderr.strip() or "curl exit {}".format(answer.returncode)
+    try:
+        issues = json.loads(answer.stdout)
+    except ValueError as error:
+        return None, "not json: {}".format(error)
+    mark = re.compile(r"^Part of #{}\b".format(number), re.M)
+    tickets = [i for i in issues if isinstance(i, dict) and mark.search(i.get("body") or "")]
+    tickets.sort(key=lambda i: i.get("number", 0))
+    return tickets, None
+
+
+def feature_cards(tickets):
+    """One card per ticket: its number, its title, and its state as a pill."""
+    cards = []
+    for t in tickets:
+        closed = t.get("state") == "closed"
+        held = bool(t.get("assignees")) or bool(t.get("assignee"))
+        pill = {"text": "Shipped", "tone": "done"} if closed else {"text": "In flight", "tone": "srv"} if held else {"text": "Next", "tone": "you"}
+        card = {"id": "#{}".format(t.get("number")), "q": t.get("title", ""), "pill": pill}
+        if t.get("html_url"):
+            card["href"] = t["html_url"]
+        cards.append(card)
+    return cards
+
+
+def write_features(board, tickets, spec):
+    """Replaces the Features section's cards with the map's tickets, and says where they came from."""
+    section = {"kind": "cards", "title": "Features", "items": feature_cards(tickets),
+               "count": "{} shipped of {}".format(sum(1 for t in tickets if t.get("state") == "closed"), len(tickets)),
+               "desc": "from the tickets of {}".format(spec)}
+    lib.upsert_section(board, "Features", section, after_kind="stats")
+    return board
 
 
 def read_feed(pulse, key, app):
@@ -130,8 +202,21 @@ def main():
             print("app-stats: pulse did not answer for {} ({}) - leaving {} as-is".format(app, why, board_path.parent.name))
             continue
         board = lib.load_board(board_path)
-        lib.save_board(board_path, write_stats(board, feed, app))
+        write_stats(board, feed, app)
         print("app-stats: {} tiles onto {} from pulse's feed for {}".format(len(board["sections"][0].get("items", [])) if board["sections"] else 0, board_path.parent.name, app))
+        spec = config.get("map")
+        if isinstance(spec, str) and spec:
+            token = forge_token(cfg)
+            if not token:
+                print("app-stats: {} names map {} and this host holds no forge token - Features left as-is".format(board_path.parent.name, spec))
+            else:
+                tickets, why = read_map_tickets(cfg.get("ROOST_FORGE_URL", "https://forgejo.jimmyhoughjr.net"), token, spec)
+                if tickets is None:
+                    print("app-stats: the forge did not answer for {} ({}) - Features left as-is".format(spec, why))
+                else:
+                    write_features(board, tickets, spec)
+                    print("app-stats: {} feature cards onto {} from {}".format(len(tickets), board_path.parent.name, spec))
+        lib.save_board(board_path, board)
         done += 1
     if not done:
         print("app-stats: no board names an app in its config.json")

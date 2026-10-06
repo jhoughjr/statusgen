@@ -29,6 +29,9 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lib
+
 MAX_LINES = 40        # kept for parity; per-board caps below
 CHART_DAYS = 14
 PER_BOARD_MAX = 15    # preview cap in the umbrella overview
@@ -138,6 +141,42 @@ for p in pushes:
     for slug in p["boards"]:
         per_board.setdefault(slug, []).append(p)
         last_dt.setdefault(slug, p["dt"])
+
+# ---- who wrote what, and when (house#92) ----------------------------------
+# Each board carries the day it last changed by a commit that was not a status push at all, a person's own commit, as
+# `handChangedAt`, and
+# the renderer puts that day on every section no collector stamped. The hub's `updated` becomes the day of the last
+# commit that touched the board at all, so the manifest stops carrying a date typed in July.
+last_any = {}   # slug -> the newest commit of any kind that touched the board, for the hub
+last_hand = {}  # slug -> the newest commit that was not a status push at all, for the by-hand mark
+for p in pushes:
+    kind = classify(p["subject"])[1]
+    for slug in p["boards"]:
+        last_any.setdefault(slug, p["dt"])
+        if kind == "edit":
+            last_hand.setdefault(slug, p["dt"])
+stamped = 0
+for entry in manifest:
+    slug = entry.get("slug")
+    if not slug or slug == "history":
+        continue
+    board_file = os.path.join(DIR, slug, "board.json")
+    if os.path.exists(board_file) and slug in last_hand:
+        try:
+            board_doc = json.load(open(board_file))
+        except ValueError:
+            board_doc = None
+        hand_day = last_hand[slug].date().isoformat()
+        if isinstance(board_doc, dict) and board_doc.get("handChangedAt") != hand_day:
+            board_doc["handChangedAt"] = hand_day
+            lib.save_board(board_file, board_doc)
+            stamped += 1
+    if slug in last_any:
+        entry["updated"] = last_any[slug].date().isoformat()
+with open(manifest_path, "w") as f:
+    json.dump(manifest, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+print(f"history: stamped handChangedAt on {stamped} board(s), and the hub's dates from the git log")
 
 def narrative_for(slug, ps):
     """Every distinct revision of a board's banner text, newest first.

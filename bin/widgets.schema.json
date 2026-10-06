@@ -20,6 +20,7 @@
                  "item": { "fields": { "label": { "type": "str" }, "href": { "type": "str" } } } },
       "staleAfterDays": { "type": "num", "need": "hard" },
       "staleAfterMinutes": { "type": "num" },
+      "handChangedAt": { "type": "str", "__doc": "The day the board last changed by a commit that was not a scheduled refresh, YYYY-MM-DD, which the history collector stamps from the git log (house#92)." },
       "tabs": { "type": "list", "need": "hard" }
     }
   },
@@ -43,6 +44,7 @@
       "pill": { "type": "obj" },
       "desc": { "type": "str" },
       "asOf": { "type": "str" },
+      "generatedAt": { "type": "str", "__doc": "The stamp a collector puts on every section it writes, an ISO time. The renderer marks the section generated with that age; a section without it reads as written by hand (house#92)." },
       "collapsible": { "type": "bool" },
       "collapsed": { "type": "bool" }
     }

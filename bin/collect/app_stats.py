@@ -94,6 +94,7 @@ def write_stats(board, feed, app):
     at = next((i for i, s in enumerate(sections) if isinstance(s, dict) and s.get("kind") == "stats"), None)
     section = dict(sections[at]) if at is not None else {"kind": "stats"}
     section["items"] = items(feed)
+    section["generatedAt"] = feed.get("read") or lib.generated_now()
     section["desc"] = "generated from pulse's feed for {}, read {}".format(app, feed.get("read") or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
     if at is not None:
         sections[at] = section

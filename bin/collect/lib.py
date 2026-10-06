@@ -6,6 +6,7 @@ a status push. They share these rules:
   - any failure is NON-FATAL: leave the board untouched, exit 0
   - a collector with no config prints a skip note and exits 0
 """
+import datetime
 import json
 import os
 import re
@@ -260,6 +261,7 @@ def set_compare_tile(board, match, n, label=None, tone=None, column=None):
                     tile["label"] = label
                 if tone is not None:
                     tile["tone"] = tone
+                stamp_compare(board)
                 return True
     return False
 
@@ -308,6 +310,7 @@ def upsert_compare_tile(board, column, label, n, tone=None, href=None,
                 tile.pop(key, None)
             else:
                 tile[key] = val
+    stamp_compare(board)
     return True
 
 
@@ -325,6 +328,18 @@ def upsert_compare_tile(board, column, label, n, tone=None, href=None,
 PRESERVED_SECTION_KEYS = ("logo", "collapsible", "collapsed")
 
 
+def generated_now():
+    """The stamp a collector puts on a section it writes, so the renderer can say it is generated and when (house#92)."""
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def stamp_compare(board):
+    """Marks every compare section as generated, since a tile written by a collector lives in one."""
+    for s in board.get("sections", []):
+        if isinstance(s, dict) and s.get("kind") == "compare":
+            s["generatedAt"] = generated_now()
+
+
 def upsert_section(board, title, section, after_kind="compare"):
     """Replace the section with this title, or insert it after the first
     section of `after_kind` (top if none).
@@ -334,6 +349,7 @@ def upsert_section(board, title, section, after_kind="compare"):
     its numbers, not how the board chooses to label it."""
     secs = list(board.get("sections", []))
     at = next((i for i, s in enumerate(secs) if s.get("title") == title), None)
+    section.setdefault("generatedAt", generated_now())
 
     if at is not None:
         for key in PRESERVED_SECTION_KEYS:

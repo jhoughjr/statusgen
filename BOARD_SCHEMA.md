@@ -53,6 +53,10 @@ Two rules matter:
 
 A tab whose sections are all absent is dropped rather than drawn empty — a board may name a tab before its collector has ever seeded the section. Omit `tabs` entirely and the board renders as one flat column, exactly as before.
 
+## Who wrote a section (`generatedAt`, `handChangedAt`)
+
+Every section a collector writes carries `"generatedAt"`, an ISO time the collector stamps through `lib.upsert_section`, the compare-tile writers, or its own write. The renderer marks such a section `generated 12m ago`. A section with no stamp was written by hand, and the renderer marks it `by hand · 2026-07-08`, the day the board last changed by a commit that was not a scheduled refresh, which the history collector stamps on the board as `"handChangedAt"` from the site's git log. The same collector sets each board's `updated` in `status.json` to the day of the last commit that touched it, so the hub's dates are real (house#92). A section with `asOf` shows that instead, since a hand-verified date says more.
+
 ## Staleness (`asOf`)
 
 A hand-written section may carry `"asOf": "2026-07-21"` — the date a human last verified it. The renderer shows a quiet `as of 2026-07-21` chip, and once the date is older than `staleAfterDays` (top level, default 7) the chip becomes a `⚠ 14d old` warning.

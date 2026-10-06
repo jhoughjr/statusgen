@@ -48,13 +48,13 @@ On a multi-repo board, the collectors split by the repo that they speak for, and
 
 **roost - the driver.** roost is the one place that knows where things are and when to run them. `roost status` is the only orchestration entry point ([bin/status.sh](../roost/bin/status.sh)):
 
-1. Run the collectors: roost's `fleet-board.py`, then `roost stats` (most statusgen collectors), then `history`, `rookery`, and `collectors`. roost records the result of each collector (see contract 6).
+1. Run the collectors: `roost stats` (most statusgen collectors), then `history`, `rookery`, `app_stats` and `collectors`. roost records the result of each collector (see contract 6).
 2. Run `sync-renderer.sh`, so the deployed renderer matches statusgen.
 3. Run `validate-board.py` on every board as a hard gate.
 4. Write the usage ledger (optional).
 5. Commit the site, rebase on the GitHub mirror, force-push to the Dokku remote, and push to the mirror. roost then reads Dokku's deploy output and fails if Dokku did not serve the `status.<domain>` host.
 
-roost also owns the one collector that is specific to roost, `fleet-board.py` (live Dokku platform metrics over SSH).
+roost owned one collector of its own, `fleet-board.py`, until the fleet board retired on 2026-10-06 (house#95); the coop shows what it showed, live from pulse.
 
 **ci-live - the live path.** This is a relay of about 200 lines with no dependencies ([jhoughjr/ci-live](https://github.com/jhoughjr/ci-live)). It deploys as its own Dokku app. It knows nothing about CI or boards. An authenticated `POST` replaces the payload of one project. A public CORS `GET` reads the payload back. The relay keeps the last payload per project on a volume, so a restart does not empty the board.
 

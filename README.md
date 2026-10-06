@@ -129,6 +129,7 @@ roost runs most collectors from `roost stats`. `roost status` runs `history`, `r
 | `collectors.py` | A "Collectors" console with one line per collector from roost's run record: its result, duration, and age. |
 | `git-stats.sh` | Prints raw repo numbers as JSON (`commits_7d`, `loc`, `test_files`, `tests_dir_loc`). It writes no board. |
 | `hatchery_stacks.py` | A "Stacks" console with one line per service and its health, from hatchery's status route. |
+| `app_stats.py` | The first stats section of each product board whose config.json names an `app`, from pulse's one feed for that app, so the board and the coop's app page cannot disagree (house#93). |
 | `history.py` | The site's History board from the site's git log: a digest, one console per board, and each board's banner revisions. |
 | `loc.py` | Lines-of-code charts, rebuilt from the buckets in the `ROOST_LOC_CONFIG` file. |
 | `narrative.py` | The timeline of merged PRs below the banner's `── shipped` marker. It does not touch the lede above the marker. |
